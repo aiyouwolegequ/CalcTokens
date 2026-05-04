@@ -29,7 +29,7 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create-release.outputs.upload_url }}
-          asset_path: CalcTokens
+          asset_path: ${{ github.workspace }}/CalcTokens
           asset_name: calctokens-linux-x86_64
           asset_content_type: application/octet-stream
         env:

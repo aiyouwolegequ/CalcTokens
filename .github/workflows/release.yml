@@ -13,18 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Show cwd
-        run: |
-          pwd
-          ls -la
       - name: Install Rust target
         run: rustup target add x86_64-unknown-linux-gnu
       - name: Build
-        run: |
-          pwd
-          cargo build --release --target x86_64-unknown-linux-gnu
-          ls -la target/x86_64-unknown-linux-gnu/release/ || echo "not found in release"
-          find . -name "calctokens" -type f 2>/dev/null
+        run: cargo build --release --target x86_64-unknown-linux-gnu
       - name: Create Release
         id: create-release
         uses: actions/create-release@v1
@@ -37,7 +29,7 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create-release.outputs.upload_url }}
-          asset_path: target/x86_64-unknown-linux-gnu/release/calctokens
+          asset_path: CalcTokens
           asset_name: calctokens-linux-x86_64
           asset_content_type: application/octet-stream
         env:

@@ -12,19 +12,38 @@ Token usage report from [Tokscale](https://tokscale.com) with human-readable K/M
 
 ## Install
 
+### macOS
+
 ```bash
-# From source
+# Install tokscale
+brew install tokscale
+
+# Build CalcTokens
 cargo build --release
 cp target/release/CalcTokens ~/.local/bin/
-
-# Or install via cargo
-cargo install --path .
 ```
 
-Requires `tokscale` CLI to be installed and authenticated:
+### Ubuntu / Linux
+
 ```bash
-brew install tokscale
-tokscale login
+# Install Node.js (required for tokscale)
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Install tokscale
+npm install -g @anthropic-ai/tokscale-cli
+
+# Build CalcTokens
+cargo build --release
+sudo cp target/release/CalcTokens /usr/local/bin/
+```
+
+> `tokscale login` — only run if `tokscale models` fails without login.
+
+### Alternative: cargo install
+
+```bash
+cargo install --path .
 ```
 
 ## Usage

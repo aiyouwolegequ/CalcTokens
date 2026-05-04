@@ -38,6 +38,8 @@ struct Rates { #[serde(rename = "CNY")] cny: f64 }
 struct ModelsResp {
     total_input: Option<f64>,
     total_output: Option<f64>,
+    total_cache_read: Option<f64>,
+    total_cache_write: Option<f64>,
     total_cost: Option<f64>,
     entries: Vec<Entry>,
 }
@@ -49,6 +51,8 @@ struct Entry {
     model: String,
     input: f64,
     output: f64,
+    cache_read: f64,
+    cache_write: f64,
     cost: f64,
 }
 
@@ -87,6 +91,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let total_in = data.total_input.unwrap_or(0.0);
     let total_out = data.total_output.unwrap_or(0.0);
+    let total_cache_read = data.total_cache_read.unwrap_or(0.0);
+    let total_cache_write = data.total_cache_write.unwrap_or(0.0);
     let total_cost = data.total_cost.unwrap_or(0.0);
     let total_rmb = total_cost * exchange;
     let max_cost = data.entries.iter().map(|e| e.cost).fold(0.0_f64, f64::max);
@@ -102,11 +108,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── Summary table ───────────────────────────────────────────────
     let mut sum_builder = Builder::new();
-    sum_builder.push_record(["Metric", "Input", "Output", "CNY"]);
+    sum_builder.push_record(["Metric", "Input", "Output", "Cache Write", "Cache Read", "Total", "CNY"]);
     sum_builder.push_record([
         metric_label,
         &fmt_num(total_in),
         &fmt_num(total_out),
+        &fmt_num(total_cache_write),
+        &fmt_num(total_cache_read),
+        &fmt_num(total_in + total_out + total_cache_write + total_cache_read),
         &format!("¥{:.2}", total_rmb),
     ]);
     let mut sum_table = sum_builder.build();
@@ -116,15 +125,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── Detail table ─────────────────────────────────────────────
     let mut detail_builder = Builder::new();
-    detail_builder.push_record(["Client", "Model", "Input", "Output", "Total", "CNY", "Share"]);
+    detail_builder.push_record(["Client", "Model", "Input", "Output", "Cache Write", "Cache Read", "Total", "CNY", "Share"]);
     for entry in &entries {
+        if entry.input == 0.0 && entry.output == 0.0 && entry.cache_write == 0.0 && entry.cache_read == 0.0 {
+            continue;
+        }
         let bar_str = bar(entry.cost, max_cost, 20);
-        let total = entry.input + entry.output;
+        let total = entry.input + entry.output + entry.cache_write + entry.cache_read;
         detail_builder.push_record([
             &entry.client,
             &entry.model,
             &fmt_num(entry.input),
             &fmt_num(entry.output),
+            &fmt_num(entry.cache_write),
+            &fmt_num(entry.cache_read),
             &fmt_num(total),
             &format!("¥{:.2}", entry.cost * exchange),
             &bar_str,
@@ -137,12 +151,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── TOP 3 table ────────────────────────────────────────────────
     let mut top_builder = Builder::new();
-    top_builder.push_record(["#", "Model", "CNY", "Share"]);
+    top_builder.push_record(["#", "Model", "Total", "CNY", "Share"]);
     for (i, entry) in entries.iter().filter(|e| e.cost > 0.0).take(3).enumerate() {
         let bar_str = bar(entry.cost, max_cost, 10);
+        let total = entry.input + entry.output + entry.cache_write + entry.cache_read;
         top_builder.push_record([
             &format!("{}", i + 1),
             &entry.model,
+            &fmt_num(total),
             &format!("¥{:.2}", entry.cost * exchange),
             &bar_str,
         ]);
@@ -154,8 +170,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
     println!("  calctokens  --  Token Usage Report   [ {} ]", label);
     println!();
+    println!("  SUMMARY");
     print!("{}", sum_table);
     println!();
+    println!("  DETAIL");
     print!("{}", detail_table);
     println!();
     println!("  TOP 3 COST");

@@ -8,7 +8,7 @@ use tabled::settings::{object::Segment, Padding, Style, Modify, Width};
 const EXCH_API: &str = "https://api.exchangerate-api.com/v4/latest/USD";
 
 #[derive(Parser, Debug)]
-#[command(name = "calctokens")]
+#[command(name = "calctokens", bin_name = "calctokens")]
 struct Args {
     #[arg(long, conflicts_with_all = ["month", "all"])]
     today: bool,

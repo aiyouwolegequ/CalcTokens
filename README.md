@@ -1,4 +1,4 @@
-# CalcTokens
+# calctokens
 
 Token usage report from [Tokscale](https://tokscale.com) with human-readable K/M/B units & RMB conversion.
 
@@ -18,9 +18,9 @@ Token usage report from [Tokscale](https://tokscale.com) with human-readable K/M
 # Install tokscale
 brew install tokscale
 
-# Build CalcTokens
+# Build calctokens
 cargo build --release
-cp target/release/CalcTokens ~/.local/bin/
+cp target/release/calctokens ~/.local/bin/
 ```
 
 ### Ubuntu / Linux
@@ -33,9 +33,9 @@ sudo apt-get install -y nodejs
 # Install tokscale
 npm install -g @anthropic-ai/tokscale-cli
 
-# Build CalcTokens
+# Build calctokens
 cargo build --release
-sudo cp target/release/CalcTokens /usr/local/bin/
+sudo cp target/release/calctokens /usr/local/bin/
 ```
 
 > `tokscale login` — only run if `tokscale models` fails without login.
@@ -49,9 +49,9 @@ cargo install --path .
 ## Usage
 
 ```bash
-CalcTokens --all    # all-time usage
-CalcTokens --today  # today's usage
-CalcTokens --month  # current month usage
+calctokens --all    # all-time usage
+calctokens --today  # today's usage
+calctokens --month  # current month usage
 ```
 
 ## Output

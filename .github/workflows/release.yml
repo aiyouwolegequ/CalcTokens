@@ -13,12 +13,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Show cwd
+        run: |
+          pwd
+          ls -la
       - name: Install Rust target
         run: rustup target add x86_64-unknown-linux-gnu
       - name: Build
-        run: cargo build --release --target x86_64-unknown-linux-gnu
-      - name: Find binary
-        run: find . -name calctokens -type f 2>/dev/null
+        run: |
+          pwd
+          cargo build --release --target x86_64-unknown-linux-gnu
+          ls -la target/x86_64-unknown-linux-gnu/release/ || echo "not found in release"
+          find . -name "calctokens" -type f 2>/dev/null
       - name: Create Release
         id: create-release
         uses: actions/create-release@v1

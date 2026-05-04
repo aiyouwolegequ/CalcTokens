@@ -11,12 +11,18 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      binary_path: ${{ steps.find.outputs.path }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust target
         run: rustup target add x86_64-unknown-linux-gnu
       - name: Build
         run: cargo build --release --target x86_64-unknown-linux-gnu
+      - name: Find binary
+        id: find
+        run: |
+          echo "path=$(pwd)/CalcTokens" >> $GITHUB_OUTPUT
       - name: Create Release
         id: create-release
         uses: actions/create-release@v1
@@ -29,7 +35,7 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create-release.outputs.upload_url }}
-          asset_path: ${{ github.workspace }}/CalcTokens
+          asset_path: ${{ steps.find.outputs.path }}
           asset_name: calctokens-linux-x86_64
           asset_content_type: application/octet-stream
         env:

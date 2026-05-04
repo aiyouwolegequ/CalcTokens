@@ -3,8 +3,7 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 use std::process::Command;
 use tabled::builder::Builder;
-use tabled::settings::{Padding, Style};
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use tabled::settings::{object::Segment, Padding, Style, Modify, Width};
 
 const EXCH_API: &str = "https://api.exchangerate-api.com/v4/latest/USD";
 
@@ -73,28 +72,6 @@ fn bar(cost: f64, max_cost: f64, w: usize) -> String {
     format!("{}{}", "█".repeat(filled), "░".repeat(w - filled))
 }
 
-fn clamp(s: &str, max_w: usize) -> String {
-    let w = s.width();
-    if w <= max_w {
-        s.to_string()
-    } else if max_w <= 3 {
-        "─".repeat(max_w)
-    } else {
-        let mut chars = s.chars();
-        let mut taken = 0;
-        let mut result = String::new();
-        for c in chars.by_ref() {
-            let cw = c.width().unwrap_or(1);
-            if taken + cw + 3 > max_w {
-                break;
-            }
-            result.push(c);
-            taken += cw;
-        }
-        result.push_str("...");
-        result
-    }
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
@@ -157,8 +134,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let bar_str = bar(entry.cost, max_cost, 20);
         let total = entry.input + entry.output + entry.cache_write + entry.cache_read;
         detail_builder.push_record([
-            &clamp(&entry.client, 10),
-            &clamp(&entry.model, 20),
+            &entry.client,
+            &entry.model,
             &fmt_num(entry.input),
             &fmt_num(entry.output),
             &fmt_num(entry.cache_write),
@@ -171,7 +148,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut detail_table = detail_builder.build();
     detail_table
         .with(Style::rounded())
-        .with(Padding::new(0, 1, 0, 0));
+        .with(Padding::new(0, 1, 0, 0))
+        .with(Modify::new(Segment::new(.., 1..2)).with(Width::wrap(25)));
 
     // ── TOP 3 table ────────────────────────────────────────────────
     let mut top_builder = Builder::new();

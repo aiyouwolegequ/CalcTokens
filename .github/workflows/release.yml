@@ -13,10 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Show directory
-        run: |
-          pwd
-          ls -la
       - name: Install Rust target
         run: rustup target add x86_64-unknown-linux-gnu
       - name: Build
@@ -24,6 +20,6 @@ jobs:
       - name: Create Release & Upload
         uses: softprops/action-gh-release@v2
         with:
-          files: CalcTokens/target/x86_64-unknown-linux-gnu/release/calctokens
+          files: target/x86_64-unknown-linux-gnu/release/calctokens
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

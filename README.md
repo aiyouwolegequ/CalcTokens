@@ -12,39 +12,38 @@ Token usage report from [Tokscale](https://tokscale.com) with human-readable K/M
 
 ## Install
 
-### macOS
+### macOS (Homebrew)
 
 ```bash
-# Install tokscale
-brew install tokscale
-
-# Build calctokens
-cargo build --release
-cp target/release/calctokens ~/.local/bin/
+brew install aiyouwolegequ/tap/calctokens
 ```
 
-### Ubuntu / Linux
+> Requires Rust/Cargo. If the build fails due to `rustc: not found`, ensure Rust is installed: `brew install rust`.
+> Note: Homebrew builds from source on macOS (GitHub Actions free-tier lacks macOS runners).
+
+### Ubuntu / Linux (Homebrew)
 
 ```bash
-# Install Node.js (required for tokscale)
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
+brew install aiyouwolegequ/tap/calctokens
+```
 
-# Install tokscale
-npm install -g @anthropic-ai/tokscale-cli
+### macOS / Linux (from source)
 
-# Build calctokens
+```bash
+cargo install --git https://github.com/aiyouwolegequ/CalcTokens --tag v0.3.2
+```
+
+### Build manually
+
+```bash
+git clone https://github.com/aiyouwolegequ/CalcTokens.git
+cd CalcTokens
 cargo build --release
-sudo cp target/release/calctokens /usr/local/bin/
+cp target/release/calctokens ~/.local/bin/   # macOS
+sudo cp target/release/calctokens /usr/local/bin/   # Linux
 ```
 
 > `tokscale login` — only run if `tokscale models` fails without login.
-
-### Alternative: cargo install
-
-```bash
-cargo install --path .
-```
 
 ## Usage
 

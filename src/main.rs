@@ -2,30 +2,36 @@ use clap::Parser;
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use std::process::Command;
+use tabled::builder::Builder;
+use tabled::settings::{Padding, Style};
 
 const EXCH_API: &str = "https://api.exchangerate-api.com/v4/latest/USD";
 
 #[derive(Parser, Debug)]
-#[command(name = "CalcTokens")]
-#[command(about = "Token usage report from Tokscale with K/M/B units & RMB conversion", long_about = None)]
+#[command(name = "calctokens")]
 struct Args {
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["month", "all"])]
     today: bool,
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["today", "all"])]
     month: bool,
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["today", "month"])]
     all: bool,
 }
 
-#[derive(Deserialize, Debug)]
-struct ExchangeResp {
-    rates: Rates,
+impl Default for Args {
+    fn default() -> Self { Args { today: false, month: false, all: true } }
 }
-#[derive(Deserialize, Debug)]
-struct Rates {
-    #[serde(rename = "CNY")]
-    cny: f64,
+
+fn resolve_range(args: &Args) -> (&'static str, &'static str) {
+    if args.today   { ("Today", "--today") }
+    else if args.month { ("This Month", "--month") }
+    else            { ("All Time", "") }
 }
+
+#[derive(Deserialize, Debug)]
+struct ExchangeResp { rates: Rates }
+#[derive(Deserialize, Debug)]
+struct Rates { #[serde(rename = "CNY")] cny: f64 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -47,168 +53,104 @@ struct Entry {
 }
 
 fn fmt_num(n: f64) -> String {
-    if n >= 1_000_000_000_000.0 {
-        format!("{:.2}T", n / 1_000_000_000_000.0)
-    } else if n >= 1_000_000_000.0 {
-        format!("{:.2}B", n / 1_000_000_000.0)
-    } else if n >= 1_000_000.0 {
-        format!("{:.2}M", n / 1_000_000.0)
-    } else if n >= 1_000.0 {
-        format!("{:.2}K", n / 1_000.0)
-    } else {
-        format!("{:.0}", n)
-    }
+    if n >= 1_000_000_000_000.0 { format!("{:.2}T", n / 1_000_000_000_000.0) }
+    else if n >= 1_000_000_000.0  { format!("{:.2}B", n / 1_000_000_000.0) }
+    else if n >= 1_000_000.0      { format!("{:.2}M", n / 1_000_000.0) }
+    else if n >= 1_000.0           { format!("{:.2}K", n / 1_000.0) }
+    else { format!("{:.0}", n) }
 }
 
-fn run_tokscale(args: &[&str]) -> ModelsResp {
-    let output = Command::new("tokscale")
-        .args(args)
-        .output()
-        .expect("failed to execute tokscale");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    serde_json::from_str(&stdout).expect("failed to parse tokscale JSON")
-}
-
-fn make_bar(cost: f64, max_cost: f64, width: usize) -> String {
+fn bar(cost: f64, max_cost: f64, w: usize) -> String {
     let filled = if max_cost > 0.0 && cost > 0.0 {
-        ((cost / max_cost) * width as f64).round() as usize
-    } else {
-        0
-    };
-    let filled = filled.min(width);
-    format!("{}{}", "█".repeat(filled), "░".repeat(width - filled))
+        ((cost / max_cost) * w as f64).round() as usize
+    } else { 0 };
+    let filled = filled.min(w);
+    format!("{}{}", "█".repeat(filled), "░".repeat(w - filled))
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+    let (label, range_flag) = resolve_range(&args);
 
-    let (range_flag, label) = if args.today {
-        ("--today", "今日")
-    } else if args.month {
-        ("--month", "本月")
-    } else {
-        ("", "全部")
-    };
-
-    // Fetch exchange rate
-    let client = Client::builder()
+    let exchange: f64 = Client::builder()
         .timeout(std::time::Duration::from_secs(8))
-        .build()
-        .unwrap();
-    let exchange: f64 = client
+        .build()?
         .get(EXCH_API)
-        .send()
-        .ok()
-        .and_then(|r| r.json::<ExchangeResp>().ok())
-        .map(|e| e.rates.cny)
-        .unwrap_or(7.2);
+        .send()?
+        .json::<ExchangeResp>()?
+        .rates.cny;
 
-    // Fetch tokscale data
     let mut tok_args = vec!["models", "--json"];
-    if !range_flag.is_empty() {
-        tok_args.push(range_flag);
-    }
-    let data: ModelsResp = run_tokscale(&tok_args);
+    if !range_flag.is_empty() { tok_args.push(range_flag); }
+    let output = Command::new("tokscale").args(&tok_args).output()?;
+    let data: ModelsResp = serde_json::from_str(&String::from_utf8_lossy(&output.stdout))?;
 
     let total_in = data.total_input.unwrap_or(0.0);
     let total_out = data.total_output.unwrap_or(0.0);
     let total_cost = data.total_cost.unwrap_or(0.0);
     let total_rmb = total_cost * exchange;
+    let max_cost = data.entries.iter().map(|e| e.cost).fold(0.0_f64, f64::max);
 
-    let max_cost = data
-        .entries
-        .iter()
-        .map(|e| e.cost)
-        .fold(0.0_f64, f64::max);
-
-    // Sort by cost desc
-    let mut entries = data.entries.clone();
+    let mut entries = data.entries;
     entries.sort_by(|a, b| b.cost.partial_cmp(&a.cost).unwrap());
 
-    // ── Render ────────────────────────────────────────────────────
-    println!();
-    println!("┌──────────────────────────────────────────────────────────────────────────┐");
-    println!(
-        "│  📊  CalcTokens  使用报告          {}                                      │",
-        label
-    );
-    println!(
-        "│  💱  1 USD = ¥{:.4} CNY  (实时汇率)                                         │",
-        exchange
-    );
-    println!("└──────────────────────────────────────────────────────────────────────────┘");
-    println!();
-    println!(
-        "┌──────────────────┬───────────┬───────────┬───────────┬───────────────┐"
-    );
-    println!(
-        "│ {:<16} │ {:^9} │ {:^9} │ {:^9} │ {:>13} │",
-        "指标", "Input", "Output", "USD", "¥CNY"
-    );
-    println!(
-        "├──────────────────┼───────────┼───────────┼───────────┼───────────────┤"
-    );
-    println!(
-        "│ {:<16} │ {:>9} │ {:>9} │ {:>9.2} │ ¥{:>12.2} │",
-        "总计",
-        fmt_num(total_in),
-        fmt_num(total_out),
-        total_cost,
-        total_rmb
-    );
-    println!(
-        "└──────────────────┴───────────┴───────────┴───────────┴───────────────┘"
-    );
-    println!();
+    // ── Summary table ───────────────────────────────────────────────
+    let mut sum_builder = Builder::new();
+    sum_builder.push_record(["Metric", "Input", "Output", "CNY"]);
+    sum_builder.push_record([
+        "TOTAL",
+        &fmt_num(total_in),
+        &fmt_num(total_out),
+        &format!("¥{:.2}", total_rmb),
+    ]);
+    let mut sum_table = sum_builder.build();
+    sum_table
+        .with(Style::rounded())
+        .with(Padding::new(1, 1, 0, 0));
 
-    println!(
-        "┌────────────────────────────────────────────────────────────────────────────────────────┐"
-    );
-    println!(
-        "│ {:^8} │ {:^28} │ {:^7} │ {:^7} │ {:^7} │ {:^20} │",
-        "Client", "Model", "Input", "Output", "USD", "费用占比"
-    );
-    println!(
-        "├────────┼──────────────────────────────┼─────────┼─────────┼─────────┼────────────────────┤"
-    );
-
+    // ── Detail table ─────────────────────────────────────────────
+    let mut detail_builder = Builder::new();
+    detail_builder.push_record(["Client", "Model", "Input", "Output", "CNY", "Share"]);
     for entry in &entries {
-        println!(
-            "│ {:^8} │ {:<28} │ {:>7} │ {:>7} │ {:>7.2} │ {} │",
-            entry.client,
-            entry.model,
-            fmt_num(entry.input),
-            fmt_num(entry.output),
-            entry.cost,
-            make_bar(entry.cost, max_cost, 20)
-        );
+        let bar_str = bar(entry.cost, max_cost, 20);
+        detail_builder.push_record([
+            &entry.client,
+            &entry.model,
+            &fmt_num(entry.input),
+            &fmt_num(entry.output),
+            &format!("¥{:.2}", entry.cost * exchange),
+            &bar_str,
+        ]);
     }
-    println!(
-        "└────────────────────────────────────────────────────────────────────────────────────────┘"
-    );
-    println!();
+    let mut detail_table = detail_builder.build();
+    detail_table
+        .with(Style::rounded())
+        .with(Padding::new(0, 1, 0, 0));
 
-    // TOP 3
-    println!("┌──────────────────────────────────────────┐");
-    println!("│           💰 费用 TOP 3                   │");
-    println!("├────┬────────────────────┬────────────────┤");
-    println!("│ {:^2} │ {:^18} │ {:^14} │", "#", "Model", "¥CNY");
-    println!("├────┼────────────────────┼────────────────┤");
-
+    // ── TOP 3 table ────────────────────────────────────────────────
+    let mut top_builder = Builder::new();
+    top_builder.push_record(["#", "Model", "CNY"]);
     for (i, entry) in entries.iter().filter(|e| e.cost > 0.0).take(3).enumerate() {
-        let model_short = if entry.model.len() > 18 {
-            entry.model[..18].to_string()
-        } else {
-            entry.model.clone()
-        };
-        println!(
-            "│ {:^2} │ {:^18} │ ¥{:>12.2} │ {} │",
-            i + 1,
-            model_short,
-            entry.cost * exchange,
-            make_bar(entry.cost, max_cost, 10)
-        );
+        let bar_str = bar(entry.cost, max_cost, 10);
+        top_builder.push_record([
+            &format!("{}", i + 1),
+            &entry.model,
+            &format!("¥{:.2}  {}", entry.cost * exchange, bar_str),
+        ]);
     }
-    println!("└────┴────────────────────┴────────────────┘");
+    let mut top_table = top_builder.build();
+    let top_table = top_table.with(Style::rounded());
+
+    // ── Print ─────────────────────────────────────────────────────
     println!();
+    println!("  calctokens  --  Token Usage Report   [ {} ]", label);
+    println!();
+    print!("{}", sum_table);
+    println!();
+    print!("{}", detail_table);
+    println!();
+    println!("  TOP 3 COST");
+    print!("{}", top_table);
+
+    Ok(())
 }

@@ -23,7 +23,8 @@ struct ExchangeResp {
 }
 #[derive(Deserialize, Debug)]
 struct Rates {
-    CNY: f64,
+    #[serde(rename = "CNY")]
+    cny: f64,
 }
 
 #[derive(Deserialize, Debug)]
@@ -99,7 +100,7 @@ fn main() {
         .send()
         .ok()
         .and_then(|r| r.json::<ExchangeResp>().ok())
-        .map(|e| e.rates.CNY)
+        .map(|e| e.rates.cny)
         .unwrap_or(7.2);
 
     // Fetch tokscale data

@@ -18,7 +18,7 @@ jobs:
       - name: Build
         run: |
           cargo build --release --target x86_64-unknown-linux-gnu
-          ls -la target/x86_64-unknown-linux-gnu/release/
+          find target -name calctokens -type f 2>/dev/null
       - name: Create Release & Upload
         uses: softprops/action-gh-release@v2
         with:

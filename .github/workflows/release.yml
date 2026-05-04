@@ -16,12 +16,13 @@ jobs:
       - name: Install Rust target
         run: rustup target add x86_64-unknown-linux-gnu
       - name: Build
-        run: cargo build --release --target x86_64-unknown-linux-gnu
-      - name: Rename binary
-        run: mv CalcTokens calctokens-linux-x86_64
+        run: |
+          cd CalcTokens
+          cargo build --release --target x86_64-unknown-linux-gnu
+          ls -la target/x86_64-unknown-linux-gnu/release/calctokens
       - name: Create Release & Upload
         uses: softprops/action-gh-release@v2
         with:
-          files: calctokens-linux-x86_64
+          files: CalcTokens/target/x86_64-unknown-linux-gnu/release/calctokens
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

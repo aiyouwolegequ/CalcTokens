@@ -7,8 +7,8 @@ Token usage report from [Tokscale](https://tokscale.com) with human-readable K/M
 - Token usage by client and model from Tokscale API
 - K/M/B/T number formatting
 - Live USD → CNY exchange rate
--费用占比 bar chart
-- TOP 3 cost ranking
+- Cache Write / Cache Read token breakdown
+- Share bar chart in detail and TOP 3
 
 ## Install
 

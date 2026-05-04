@@ -94,11 +94,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut entries = data.entries;
     entries.sort_by(|a, b| b.cost.partial_cmp(&a.cost).unwrap());
 
+    let metric_label = match range_flag {
+        "--today" => "TODAY",
+        "--month" => "MONTH",
+        _ => "ALL",
+    };
+
     // ── Summary table ───────────────────────────────────────────────
     let mut sum_builder = Builder::new();
     sum_builder.push_record(["Metric", "Input", "Output", "CNY"]);
     sum_builder.push_record([
-        "TOTAL",
+        metric_label,
         &fmt_num(total_in),
         &fmt_num(total_out),
         &format!("¥{:.2}", total_rmb),

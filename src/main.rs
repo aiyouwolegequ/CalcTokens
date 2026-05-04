@@ -110,14 +110,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── Detail table ─────────────────────────────────────────────
     let mut detail_builder = Builder::new();
-    detail_builder.push_record(["Client", "Model", "Input", "Output", "CNY", "Share"]);
+    detail_builder.push_record(["Client", "Model", "Input", "Output", "Total", "CNY", "Share"]);
     for entry in &entries {
         let bar_str = bar(entry.cost, max_cost, 20);
+        let total = entry.input + entry.output;
         detail_builder.push_record([
             &entry.client,
             &entry.model,
             &fmt_num(entry.input),
             &fmt_num(entry.output),
+            &fmt_num(total),
             &format!("¥{:.2}", entry.cost * exchange),
             &bar_str,
         ]);
@@ -129,17 +131,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── TOP 3 table ────────────────────────────────────────────────
     let mut top_builder = Builder::new();
-    top_builder.push_record(["#", "Model", "CNY"]);
+    top_builder.push_record(["#", "Model", "CNY", "Share"]);
     for (i, entry) in entries.iter().filter(|e| e.cost > 0.0).take(3).enumerate() {
         let bar_str = bar(entry.cost, max_cost, 10);
         top_builder.push_record([
             &format!("{}", i + 1),
             &entry.model,
-            &format!("¥{:.2}  {}", entry.cost * exchange, bar_str),
+            &format!("¥{:.2}", entry.cost * exchange),
+            &bar_str,
         ]);
     }
     let mut top_table = top_builder.build();
-    let top_table = top_table.with(Style::rounded());
+    top_table.with(Style::rounded());
 
     // ── Print ─────────────────────────────────────────────────────
     println!();
@@ -150,7 +153,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     print!("{}", detail_table);
     println!();
     println!("  TOP 3 COST");
-    print!("{}", top_table);
+    println!("{}", top_table);
 
     Ok(())
 }

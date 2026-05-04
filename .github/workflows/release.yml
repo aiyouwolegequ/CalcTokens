@@ -15,12 +15,20 @@ jobs:
           targets: x86_64-unknown-linux-gnu
       - name: Build
         run: cargo build --release --target x86_64-unknown-linux-gnu
+      - name: Create Release
+        id: create-release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: ${{ github.ref }}
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ github.event.release.upload_url }}
+          upload_url: ${{ steps.create-release.outputs.upload_url }}
           asset_path: target/x86_64-unknown-linux-gnu/release/calctokens
           asset_name: calctokens-linux-x86_64
           asset_content_type: application/octet-stream

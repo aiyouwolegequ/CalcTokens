@@ -14,14 +14,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust target
-        run: rustup target add x86_64-unknown-linux-gnu
-        working-directory: CalcTokens
+        run: |
+          cd CalcTokens
+          rustup target add x86_64-unknown-linux-gnu
       - name: Build
-        run: cargo build --release --target x86_64-unknown-linux-gnu
-        working-directory: CalcTokens
-      - name: List artifacts
-        run: ls -la target/x86_64-unknown-linux-gnu/release/calctokens
-        working-directory: CalcTokens
+        run: |
+          cd CalcTokens
+          cargo build --release --target x86_64-unknown-linux-gnu
       - name: Create Release
         id: create-release
         uses: actions/create-release@v1

@@ -12,25 +12,18 @@ Token usage report from [Tokscale](https://tokscale.com) with human-readable K/M
 
 ## Install
 
-### macOS (Homebrew)
+### macOS / Linux (Homebrew)
 
 ```bash
 brew install aiyouwolegequ/tap/calctokens
 ```
 
-> Requires Rust/Cargo. If the build fails due to `rustc: not found`, ensure Rust is installed: `brew install rust`.
-> Note: Homebrew builds from source on macOS (GitHub Actions free-tier lacks macOS runners).
+Works on macOS (arm64) and Linux (x86_64). No additional dependencies required.
 
-### Ubuntu / Linux (Homebrew)
-
-```bash
-brew install aiyouwolegequ/tap/calctokens
-```
-
-### macOS / Linux (from source)
+### Build from source
 
 ```bash
-cargo install --git https://github.com/aiyouwolegequ/CalcTokens --tag v0.3.2
+cargo install --git https://github.com/aiyouwolegequ/CalcTokens
 ```
 
 ### Build manually

@@ -15,7 +15,7 @@ Token usage report from [Tokscale](https://tokscale.com) with human-readable K/M
 ### macOS / Linux (Homebrew)
 
 ```bash
-brew install aiyouwolegequ/tap/calctokens
+brew install aiyouwolegequ/homebrew-calctokens/calctokens
 ```
 
 Works on macOS (arm64) and Linux (x86_64). No additional dependencies required.

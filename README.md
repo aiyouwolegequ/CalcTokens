@@ -12,6 +12,9 @@ Token usage report from [Tokscale](https://tokscale.com) with human-readable K/M
 - SQLite storage with delta comparison (since last check)
 - Daily caching for exchange rate and API results
 - Monthly & Hourly usage reports
+- Client filtering (`-c/--client`)
+- Pricing view with CNY conversion
+- Clients overview showing all detected clients
 
 ## Install
 
@@ -44,12 +47,18 @@ sudo cp target/release/calctokens /usr/local/bin/   # Linux
 ## Usage
 
 ```bash
-calctokens --all     # all-time usage (default)
-calctokens --today  # today's usage
-calctokens --month  # current month usage
-calctokens --monthly # monthly trend report
-calctokens --hourly # hourly usage history
+calctokens --all             # all-time usage (default)
+calctokens --today          # today's usage
+calctokens --month          # current month usage
+calctokens --monthly        # monthly trend report
+calctokens --hourly         # hourly usage history
+calctokens --pricing        # model pricing (CNY)
+calctokens --clients        # all clients overview
+calctokens -c claude        # filter by client
+calctokens -c kimi --month  # filter by client + time range
 ```
+
+**Supported clients:** `opencode`, `claude`, `codex`, `gemini`, `openclaw`, `kimi`, `hermes`, `antigravity`, etc.
 
 ## Output
 

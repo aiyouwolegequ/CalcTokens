@@ -13,20 +13,24 @@ const DB_PATH: &str = ".calctokens.db";
 #[derive(Parser, Debug)]
 #[command(name = "calctokens", bin_name = "calctokens")]
 struct Args {
-    #[arg(long, conflicts_with_all = ["month", "all", "monthly", "hourly"])]
+    #[arg(long, conflicts_with_all = ["month", "all", "monthly", "hourly", "pricing", "clients"])]
     today: bool,
-    #[arg(long, conflicts_with_all = ["today", "all", "monthly", "hourly"])]
+    #[arg(long, conflicts_with_all = ["today", "all", "monthly", "hourly", "pricing", "clients"])]
     month: bool,
-    #[arg(long, conflicts_with_all = ["today", "month", "monthly", "hourly"])]
+    #[arg(long, conflicts_with_all = ["today", "month", "monthly", "hourly", "pricing", "clients"])]
     all: bool,
-    #[arg(long, conflicts_with_all = ["today", "month", "all", "hourly"])]
+    #[arg(long, conflicts_with_all = ["today", "month", "all", "hourly", "pricing", "clients"])]
     monthly: bool,
-    #[arg(long, conflicts_with_all = ["today", "month", "all", "monthly"])]
+    #[arg(long, conflicts_with_all = ["today", "month", "all", "monthly", "pricing", "clients"])]
     hourly: bool,
+    #[arg(long, conflicts_with_all = ["today", "month", "all", "monthly", "hourly", "clients"])]
+    pricing: bool,
+    #[arg(long, conflicts_with_all = ["today", "month", "all", "monthly", "hourly", "pricing"])]
+    clients: bool,
 }
 
 impl Default for Args {
-    fn default() -> Self { Args { today: false, month: false, all: true, monthly: false, hourly: false } }
+    fn default() -> Self { Args { today: false, month: false, all: true, monthly: false, hourly: false, pricing: false, clients: false } }
 }
 
 fn resolve_mode(args: &Args) -> (&'static str, Vec<&'static str>) {
@@ -103,6 +107,42 @@ struct HourlyEntry {
     cache_write: f64,
     message_count: i64,
     cost: f64,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct PricingResp {
+    model_id: String,
+    matched_key: String,
+    source: String,
+    pricing: PricingDetail,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct PricingDetail {
+    input_cost_per_token: f64,
+    output_cost_per_token: f64,
+    cache_read_input_token_cost: Option<f64>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct ClientsResp {
+    clients: Vec<ClientInfo>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct ClientInfo {
+    client: String,
+    label: String,
+    sessions_path: String,
+    sessions_path_exists: bool,
+    message_count: i64,
+    headless_supported: bool,
+    #[serde(default)]
+    headless_message_count: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -465,6 +505,82 @@ fn print_hourly_view(data: &HourlyResp, exchange: f64) {
     print!("{}", detail_table);
 }
 
+fn print_pricing_view(data: &PricingResp, exchange: f64) {
+    let input_rmb = data.pricing.input_cost_per_token * 1_000_000.0 * exchange;
+    let output_rmb = data.pricing.output_cost_per_token * 1_000_000.0 * exchange;
+    let cache_rmb = data.pricing.cache_read_input_token_cost.unwrap_or(0.0) * 1_000_000.0 * exchange;
+
+    let mut builder = Builder::new();
+    builder.push_record(["Model", "Source", "Input/M", "Output/M", "Cache Read/M"]);
+    builder.push_record([
+        &data.model_id,
+        &data.source,
+        &format!("¥{:.4}", input_rmb),
+        &format!("¥{:.4}", output_rmb),
+        &format!("¥{:.4}", cache_rmb),
+    ]);
+    let mut table = builder.build();
+    table.with(Style::rounded()).with(Padding::new(1, 1, 0, 0));
+
+    println!();
+    println!("  calctokens  --  Pricing Report");
+    println!();
+    println!("  MODEL: {}", data.model_id);
+    println!("  MATCHED: {}", data.matched_key);
+    println!();
+    print!("{}", table);
+    println!();
+    println!("  Per Million Tokens (USD → CNY @ {:.2})", exchange);
+}
+
+fn print_clients_view(data: &ClientsResp, exchange: f64) {
+    let total_msgs: i64 = data.clients.iter().map(|c| c.message_count).sum();
+
+    let mut sum_builder = Builder::new();
+    sum_builder.push_record(["Client", "Label", "Sessions", "Msgs"]);
+    for client in &data.clients {
+        if client.message_count == 0 {
+            continue;
+        }
+        let sess = if client.sessions_path_exists { "✓" } else { "✗" };
+        sum_builder.push_record([
+            &client.client,
+            &client.label,
+            &sess.to_string(),
+            &client.message_count.to_string(),
+        ]);
+    }
+    let mut sum_table = sum_builder.build();
+    sum_table.with(Style::rounded()).with(Padding::new(1, 1, 0, 0));
+
+    let mut detail_builder = Builder::new();
+    detail_builder.push_record(["Client", "Label", "Sessions", "Headless", "Msgs"]);
+    for client in &data.clients {
+        let headless = if client.headless_supported { "✓" } else { "-" };
+        let sess = if client.sessions_path_exists { "✓" } else { "✗" };
+        detail_builder.push_record([
+            &client.client,
+            &client.label,
+            &sess.to_string(),
+            &headless.to_string(),
+            &client.message_count.to_string(),
+        ]);
+    }
+    let mut detail_table = detail_builder.build();
+    detail_table.with(Style::rounded()).with(Padding::new(0, 1, 0, 0));
+
+    println!();
+    println!("  calctokens  --  Clients Report");
+    println!();
+    println!("  TOTAL MESSAGES: {}", total_msgs);
+    println!();
+    println!("  ACTIVE CLIENTS");
+    print!("{}", sum_table);
+    println!();
+    println!("  ALL CLIENTS");
+    print!("{}", detail_table);
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let (label, mode_args) = resolve_mode(&args);
@@ -494,9 +610,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         rate
     };
 
-    let cache_key = if mode_args.is_empty() { "all" } else { range_key };
-
-    if args.monthly {
+    if args.pricing {
+        let output = Command::new("tokscale").args(["pricing", "--json", "minimax-m2.7-highspeed"]).output()?;
+        let data: PricingResp = serde_json::from_str(&String::from_utf8_lossy(&output.stdout))?;
+        print_pricing_view(&data, exchange);
+    } else if args.clients {
+        let output = Command::new("tokscale").args(["clients", "--json"]).output()?;
+        let data: ClientsResp = serde_json::from_str(&String::from_utf8_lossy(&output.stdout))?;
+        print_clients_view(&data, exchange);
+    } else if args.monthly {
         let json_data = if let Some(cached) = get_cached_token_data(&conn, "monthly")? {
             cached
         } else {
@@ -519,6 +641,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let data: HourlyResp = serde_json::from_str(&json_data)?;
         print_hourly_view(&data, exchange);
     } else {
+        let cache_key = if mode_args.is_empty() { "all" } else { range_key };
         let last_record = get_last_record(&conn, range_key)?;
 
         let json_data = if let Some(cached) = get_cached_token_data(&conn, cache_key)? {

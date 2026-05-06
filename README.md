@@ -1,21 +1,22 @@
 # calctokens
 
-Token usage report from [Tokscale](https://tokscale.com) with human-readable K/M/B units & RMB conversion.
+Token usage report powered by [tokscale-core](https://github.com/junhoyeo/tokscale) with human-readable K/M/B units & RMB conversion.
 
 ## Features
 
-- Token usage by client and model from Tokscale API
+- Token usage by client and model via `tokscale-core`
 - K/M/B/T number formatting
 - Live USD → CNY exchange rate
 - Cache Write / Cache Read token breakdown
 - Share bar chart in detail and TOP 3
 - SQLite storage with delta comparison (since last check)
 - Daily caching for exchange rate and API results
-- Monthly & Hourly usage reports
+- Monthly & Hourly trend reports
 - Client filtering (`-c/--client`)
-- Pricing view with CNY conversion
-- Clients overview showing all detected clients
-- `--json-output` flag for programmatic JSON output
+- Pricing lookup with CNY conversion (`--pricing`)
+- Clients overview (`--clients`)
+- Time filtering: `--since`, `--until`, `--year`
+- `--json-output` flag for all report types
 
 ## Install
 
@@ -48,16 +49,18 @@ sudo cp target/release/calctokens /usr/local/bin/   # Linux
 ## Usage
 
 ```bash
-calctokens --all             # all-time usage (default)
-calctokens --today          # today's usage
-calctokens --month          # current month usage
-calctokens --monthly        # monthly trend report
-calctokens --hourly         # hourly usage history
-calctokens --pricing        # model pricing (CNY)
-calctokens --clients        # all clients overview
-calctokens -c claude        # filter by client
-calctokens -c kimi --month  # filter by client + time range
-calctokens --json-output     # output raw JSON for scripts
+calctokens                     # all-time usage (default)
+calctokens --today             # today's usage
+calctokens --month             # current month usage
+calctokens --monthly           # monthly trend report
+calctokens --hourly            # hourly usage history
+calctokens --pricing MODEL_ID  # model pricing lookup (CNY)
+calctokens --clients           # all detected clients
+calctokens -c claude           # filter by client
+calctokens -c kimi --month     # filter by client + time range
+calctokens --since 2026-01-01  # filter by start date
+calctokens --year 2026          # filter by year
+calctokens --json-output        # output JSON for scripts
 ```
 
 **Supported clients:** `opencode`, `claude`, `codex`, `gemini`, `openclaw`, `kimi`, `hermes`, `antigravity`, etc.
@@ -92,10 +95,12 @@ calctokens --json-output     # output raw JSON for scripts
 ## Tech Stack
 
 - Rust
+- `tokscale-core` — token data engine (async, multi-client)
+- `tokio` — async runtime
 - `clap` — CLI argument parsing
 - `reqwest` — HTTP client for exchange rate API
-- `serde` / `serde_json` — JSON parsing
-- `tokscale` — data source (external CLI)
+- `serde` / `serde_json` — JSON serialization
+- `rusqlite` — SQLite storage for caching
 
 ## License
 

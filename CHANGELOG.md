@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.0] - 2026-05-06
+
+### Changed
+- Core migration: replace direct Tokscale API calls with `tokscale-core` library integration
+- Async runtime: add `tokio` for proper async API calls
+
+### Added
+- `--monthly` view for monthly trend reports
+- `--hourly` view for hourly usage history
+- `--pricing` view for model pricing lookup with CNY conversion
+- `--clients` view showing all detected clients
+- `--json-output` flag for all report types (models, monthly, hourly, pricing, clients)
+- Time filtering: `--since`, `--until`, `--year` flags
+- Enhanced DB schema with `exchange_cache` and `token_cache` tables
+
 ## [0.4.5] - 2026-05-06
 
 ### Fixed

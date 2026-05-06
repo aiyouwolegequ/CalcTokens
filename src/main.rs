@@ -486,9 +486,11 @@ fn fmt_diff(n: f64) -> String {
     else { format!("{:+.0}", n) }
 }
 
-fn bar(cost: f64, max_cost: f64, w: usize) -> String {
-    let filled = if max_cost > 0.0 && cost > 0.0 {
-        ((cost / max_cost) * w as f64).round() as usize
+fn bar(cost: f64, total_cost: f64, w: usize) -> String {
+    // share = cost / total_cost × bar_width (not max_cost), so the bar
+    // accurately represents each model's share of total spending.
+    let filled = if total_cost > 0.0 && cost > 0.0 {
+        ((cost / total_cost) * w as f64).round() as usize
     } else { 0 };
     let filled = filled.min(w);
     format!("{}{}", "█".repeat(filled), "░".repeat(w - filled))
@@ -503,7 +505,6 @@ fn print_models_view(report: &ModelReport, exchange: f64, last_record: &Option<H
     let total_cache_write = report.total_cache_write;
     let total_cost = report.total_cost;
     let total_rmb = total_cost * exchange;
-    let max_cost = report.entries.iter().map(|e| e.cost).fold(0.0_f64, f64::max);
 
     let metric_label = match range_flag {
         "today" => "TODAY",
@@ -549,7 +550,7 @@ fn print_models_view(report: &ModelReport, exchange: f64, last_record: &Option<H
     for entry in &entries {
         let (inp, out, cw, cr) = (entry.input as f64, entry.output as f64, entry.cache_write as f64, entry.cache_read as f64);
         if inp == 0.0 && out == 0.0 && cw == 0.0 && cr == 0.0 { continue; }
-        let bar_str = bar(entry.cost, max_cost, 20);
+        let bar_str = bar(entry.cost, total_cost, 20);
         let total = inp + out + cw + cr;
         detail_builder.push_record([
             &entry.client, &entry.model, &fmt_num(inp), &fmt_num(out), &fmt_num(cw),
@@ -566,7 +567,7 @@ fn print_models_view(report: &ModelReport, exchange: f64, last_record: &Option<H
         let total = (entry.input + entry.output + entry.cache_write + entry.cache_read) as f64;
         top_builder.push_record([
             &format!("{}", i + 1), &entry.model, &fmt_num(total),
-            &format!("¥{:.2}", entry.cost * exchange), &bar(entry.cost, max_cost, 10),
+            &format!("¥{:.2}", entry.cost * exchange), &bar(entry.cost, total_cost, 10),
         ]);
     }
     let mut top_table = top_builder.build();
@@ -591,8 +592,8 @@ fn print_models_view(report: &ModelReport, exchange: f64, last_record: &Option<H
 }
 
 fn print_monthly_view(report: &MonthlyReport, exchange: f64) {
-    let max_cost = report.entries.iter().map(|e| e.cost).fold(0.0_f64, f64::max);
-    let total_rmb = report.total_cost * exchange;
+    let total_cost = report.total_cost;
+    let total_rmb = total_cost * exchange;
 
     let mut sum_builder = Builder::new();
     sum_builder.push_record(["Period", "Input", "Output", "Cache Write", "Cache Read", "Total", "CNY", "Msgs"]);
@@ -612,7 +613,7 @@ fn print_monthly_view(report: &MonthlyReport, exchange: f64) {
     for entry in &report.entries {
         let total = (entry.input + entry.output + entry.cache_write + entry.cache_read) as f64;
         detail_builder.push_record([
-            &entry.month, &fmt_num(total), &format!("¥{:.2}", entry.cost * exchange), &bar(entry.cost, max_cost, 20),
+            &entry.month, &fmt_num(total), &format!("¥{:.2}", entry.cost * exchange), &bar(entry.cost, total_cost, 20),
         ]);
     }
     let mut detail_table = detail_builder.build();
@@ -631,7 +632,7 @@ fn print_monthly_view(report: &MonthlyReport, exchange: f64) {
 }
 
 fn print_hourly_view(report: &HourlyReport, exchange: f64) {
-    let max_cost = report.entries.iter().map(|e| e.cost).fold(0.0_f64, f64::max);
+    let total_cost = report.total_cost;
 
     let mut detail_builder = Builder::new();
     detail_builder.push_record(["Hour", "Clients", "Models", "Input", "Output", "Cache", "Total", "CNY", "Share"]);
@@ -643,7 +644,7 @@ fn print_hourly_view(report: &HourlyReport, exchange: f64) {
         detail_builder.push_record([
             &entry.hour, &clients, &models, &fmt_num(inp), &fmt_num(out),
             &fmt_num(cw + cr), &fmt_num(total), &format!("¥{:.2}", entry.cost * exchange),
-            &bar(entry.cost, max_cost, 15),
+            &bar(entry.cost, total_cost, 15),
         ]);
     }
     let mut detail_table = detail_builder.build();

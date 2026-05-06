@@ -2,9 +2,13 @@
 
 Token usage report powered by [tokscale-core](https://github.com/junhoyeo/tokscale) with human-readable K/M/B units & RMB conversion.
 
+Data is persisted in SQLite and survives client log file deletions — delete `~/.claude/` or any other client logs without losing history.
+
 ## Features
 
-- Token usage by client and model via `tokscale-core`
+- Token usage by client and model
+- All messages stored permanently in `~/.calctokens.db` — independent of source log files
+- Pre-aggregated `daily_summary` for fast model/monthly reports (99.8% row reduction)
 - K/M/B/T number formatting
 - Live USD → CNY exchange rate
 - Cache Write / Cache Read token breakdown
@@ -98,7 +102,7 @@ calctokens --json-output        # output JSON for scripts
 - `clap` — CLI argument parsing
 - `reqwest` — HTTP client for exchange rate API
 - `serde` / `serde_json` — JSON serialization
-- `rusqlite` — SQLite storage for caching
+- `rusqlite` — SQLite authoritative data store (messages persist across log deletions)
 
 ## License
 

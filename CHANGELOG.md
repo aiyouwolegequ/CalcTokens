@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.5] - 2026-05-06
+
+### Fixed
+- Dual-platform CI: matrix workflow now correctly builds and uploads **both** macOS ARM64 and Linux x86_64 binaries
+- Homebrew formula `install` method reliability: uses `bin.mkpath + FileUtils.cp + chmod(0755)` for correct binary installation on all platforms
+- macOS ARM64 formula: corrected URL pointing to v0.4.2 archive (was causing wrong binary to be downloaded)
+
+## [0.4.3] - 2026-05-06
+
+### Fixed
+- GitHub Actions cargo cache contamination: `cargo clean --release` added before build to prevent macOS binary being uploaded as Linux binary
+
 ## [0.4.2] - 2026-05-06
 
 ### Added

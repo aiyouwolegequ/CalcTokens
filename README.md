@@ -44,8 +44,6 @@ cp target/release/calctokens ~/.local/bin/   # macOS
 sudo cp target/release/calctokens /usr/local/bin/   # Linux
 ```
 
-> `tokscale login` — only run if `tokscale models` fails without login.
-
 ## Usage
 
 ```bash

@@ -12,7 +12,7 @@ Data is persisted in SQLite and survives client log file deletions — delete `~
 - K/M/B/T number formatting
 - Live USD → CNY exchange rate
 - Cache Write / Cache Read token breakdown
-- Share bar chart in detail and TOP 3
+- Share bar chart in detail and TOP 3 (accurate percentage of total cost)
 - SQLite storage with delta comparison (since last check)
 - Daily caching for exchange rate and API results
 - Monthly & Hourly trend reports

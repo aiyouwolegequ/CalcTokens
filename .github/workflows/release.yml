@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build
-        run: cargo build --release
+        run: cargo clean --release && cargo build --release
       - name: Create Release & Upload
         uses: softprops/action-gh-release@v2
         with:

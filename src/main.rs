@@ -29,10 +29,12 @@ struct Args {
     pricing: bool,
     #[arg(long, conflicts_with_all = ["today", "month", "all", "monthly", "hourly", "pricing"])]
     clients: bool,
+    #[arg(long)]
+    json_output: bool,
 }
 
 impl Default for Args {
-    fn default() -> Self { Args { client: None, today: false, month: false, all: true, monthly: false, hourly: false, pricing: false, clients: false } }
+    fn default() -> Self { Args { client: None, today: false, month: false, all: true, monthly: false, hourly: false, pricing: false, clients: false, json_output: false } }
 }
 
 fn resolve_mode(args: &Args) -> (&'static str, Vec<&'static str>) {
@@ -612,7 +614,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         rate
     };
 
-    if args.pricing {
+    if args.json_output {
+        let mut tok_args = vec!["models", "--json"];
+        for arg in &mode_args {
+            if !arg.is_empty() {
+                tok_args.push(arg);
+            }
+        }
+        if let Some(ref client) = args.client {
+            tok_args.push("-c");
+            tok_args.push(client);
+        }
+        let output = Command::new("tokscale").args(&tok_args).output()?;
+        print!("{}", String::from_utf8_lossy(&output.stdout));
+        return Ok(());
+    } else if args.pricing {
         let output = Command::new("tokscale").args(["pricing", "--json", "minimax-m2.7-highspeed"]).output()?;
         let data: PricingResp = serde_json::from_str(&String::from_utf8_lossy(&output.stdout))?;
         print_pricing_view(&data, exchange);

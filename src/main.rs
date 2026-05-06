@@ -13,7 +13,10 @@ use tokscale_core::{
 };
 
 const EXCH_API: &str = "https://api.exchangerate-api.com/v4/latest/USD";
-const DB_PATH: &str = ".calctokens.db";
+fn db_path() -> String {
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| ".".into());
+    format!("{}/.calctokens.db", home)
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "calctokens", bin_name = "calctokens", about = "AI coding assistant token usage tracker (CNY)")]
@@ -432,7 +435,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         else if args.hourly { "hourly" }
         else { "all" };
 
-    let conn = Connection::open(DB_PATH)?;
+    let conn = Connection::open(db_path())?;
     init_db(&conn)?;
 
     let exchange: f64 = if let Some(cached) = get_cached_exchange(&conn, "CNY")? {

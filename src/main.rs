@@ -13,6 +13,8 @@ const DB_PATH: &str = ".calctokens.db";
 #[derive(Parser, Debug)]
 #[command(name = "calctokens", bin_name = "calctokens")]
 struct Args {
+    #[arg(long, conflicts_with_all = ["month", "all", "monthly", "hourly", "pricing", "clients"], short)]
+    client: Option<String>,
     #[arg(long, conflicts_with_all = ["month", "all", "monthly", "hourly", "pricing", "clients"])]
     today: bool,
     #[arg(long, conflicts_with_all = ["today", "all", "monthly", "hourly", "pricing", "clients"])]
@@ -30,7 +32,7 @@ struct Args {
 }
 
 impl Default for Args {
-    fn default() -> Self { Args { today: false, month: false, all: true, monthly: false, hourly: false, pricing: false, clients: false } }
+    fn default() -> Self { Args { client: None, today: false, month: false, all: true, monthly: false, hourly: false, pricing: false, clients: false } }
 }
 
 fn resolve_mode(args: &Args) -> (&'static str, Vec<&'static str>) {
@@ -297,7 +299,7 @@ fn bar(cost: f64, max_cost: f64, w: usize) -> String {
     format!("{}{}", "█".repeat(filled), "░".repeat(w - filled))
 }
 
-fn print_models_view(data: &ModelsResp, exchange: f64, last_record: &Option<HistoryRecord>, range_flag: &str, range_key: &str) {
+fn print_models_view(data: &ModelsResp, exchange: f64, last_record: &Option<HistoryRecord>, range_flag: &str) {
     let total_in = data.total_input.unwrap_or(0.0);
     let total_out = data.total_output.unwrap_or(0.0);
     let total_cache_read = data.total_cache_read.unwrap_or(0.0);
@@ -641,10 +643,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let data: HourlyResp = serde_json::from_str(&json_data)?;
         print_hourly_view(&data, exchange);
     } else {
-        let cache_key = if mode_args.is_empty() { "all" } else { range_key };
-        let last_record = get_last_record(&conn, range_key)?;
+        let cache_key = if let Some(ref c) = args.client {
+            format!("{}_{}", range_key, c)
+        } else if mode_args.is_empty() {
+            "all".to_string()
+        } else {
+            range_key.to_string()
+        };
+        let last_record = get_last_record(&conn, &cache_key)?;
 
-        let json_data = if let Some(cached) = get_cached_token_data(&conn, cache_key)? {
+        let json_data = if let Some(cached) = get_cached_token_data(&conn, &cache_key)? {
             cached
         } else {
             let mut tok_args = vec!["models", "--json"];
@@ -653,9 +661,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tok_args.push(arg);
                 }
             }
+            if let Some(ref client) = args.client {
+                tok_args.push("-c");
+                tok_args.push(client);
+            }
             let output = Command::new("tokscale").args(&tok_args).output()?;
             let json_str = String::from_utf8_lossy(&output.stdout).to_string();
-            save_token_cache(&conn, cache_key, &json_str)?;
+            save_token_cache(&conn, &cache_key, &json_str)?;
             json_str
         };
         let data: ModelsResp = serde_json::from_str(&json_data)?;
@@ -667,9 +679,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let total_cost = data.total_cost.unwrap_or(0.0);
         let total_rmb = total_cost * exchange;
 
-        save_record(&conn, range_key, total_in, total_out, total_cache_read, total_cache_write, total_cost, total_rmb)?;
+        save_record(&conn, &cache_key, total_in, total_out, total_cache_read, total_cache_write, total_cost, total_rmb)?;
 
-        print_models_view(&data, exchange, &last_record, range_flag, range_key);
+        print_models_view(&data, exchange, &last_record, range_flag);
     }
 
     Ok(())

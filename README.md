@@ -9,6 +9,9 @@ Token usage report from [Tokscale](https://tokscale.com) with human-readable K/M
 - Live USD → CNY exchange rate
 - Cache Write / Cache Read token breakdown
 - Share bar chart in detail and TOP 3
+- SQLite storage with delta comparison (since last check)
+- Daily caching for exchange rate and API results
+- Monthly & Hourly usage reports
 
 ## Install
 
@@ -41,9 +44,11 @@ sudo cp target/release/calctokens /usr/local/bin/   # Linux
 ## Usage
 
 ```bash
-calctokens --all    # all-time usage
+calctokens --all     # all-time usage (default)
 calctokens --today  # today's usage
 calctokens --month  # current month usage
+calctokens --monthly # monthly trend report
+calctokens --hourly # hourly usage history
 ```
 
 ## Output

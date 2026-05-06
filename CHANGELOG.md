@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.0] - 2026-05-06
+
+### Changed
+- Architecture: SQLite is now the authoritative data source instead of ephemeral log files
+- All reports (default, monthly, hourly) read from local SQLite database, not tokscale-core
+- Added `messages` table storing every message with dedup (97K+ rows supported)
+- Added `daily_summary` pre-aggregation table (124 rows from 98K messages, 99.8% reduction)
+- Sync: parse log files once, store permanently; subsequent runs only add new messages via `INSERT OR IGNORE`
+- Reports persist across client log file deletions — deleting `~/.claude/` no longer loses history
+
+### Added
+- `sync_messages()`: parses all client logs and persists to SQLite with dedup
+- `refresh_daily_summary()`: rebuilds pre-aggregated table from raw messages
+- SQLite-based report queries replace tokscale-core `get_model_report` / `get_monthly_report` / `get_hourly_report`
+
 ## [0.5.0] - 2026-05-06
 
 ### Changed

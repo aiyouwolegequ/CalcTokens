@@ -7,8 +7,9 @@ use tabled::builder::Builder;
 use tabled::settings::{object::Segment, Padding, Style, Modify, Width};
 use tokio::runtime::Runtime;
 use tokscale_core::{
-    ClientId, GroupBy, ReportOptions,
+    ClientId, LocalParseOptions,
     ModelReport, MonthlyReport, HourlyReport,
+    ModelUsage, MonthlyUsage, HourlyUsage,
     pricing,
 };
 
@@ -86,6 +87,54 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             range TEXT PRIMARY KEY, json_data TEXT NOT NULL, fetched_date TEXT NOT NULL
         )", [],
     )?;
+    // messages is the authoritative raw data store — once synced, reports
+    // read from here regardless of whether source log files still exist.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            workspace_key TEXT,
+            workspace_label TEXT,
+            timestamp INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            input_tokens INTEGER NOT NULL,
+            output_tokens INTEGER NOT NULL,
+            cache_read INTEGER NOT NULL DEFAULT 0,
+            cache_write INTEGER NOT NULL DEFAULT 0,
+            reasoning INTEGER NOT NULL DEFAULT 0,
+            cost REAL NOT NULL,
+            message_count INTEGER NOT NULL DEFAULT 1,
+            agent TEXT,
+            is_turn_start INTEGER NOT NULL DEFAULT 0,
+            message_key TEXT NOT NULL UNIQUE
+        )",
+        [],
+    )?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_date ON messages(date)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_client ON messages(client)", [])?;
+    // daily_summary pre-aggregates messages by date+client+model so
+    // model/monthly reports avoid scanning 100K+ raw rows.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS daily_summary (
+            date TEXT NOT NULL,
+            client TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            input_tokens INTEGER NOT NULL,
+            output_tokens INTEGER NOT NULL,
+            cache_read INTEGER NOT NULL,
+            cache_write INTEGER NOT NULL,
+            reasoning INTEGER NOT NULL DEFAULT 0,
+            cost REAL NOT NULL,
+            message_count INTEGER NOT NULL,
+            turn_count INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (date, client, model_id)
+        )",
+        [],
+    )?;
     Ok(())
 }
 
@@ -134,10 +183,83 @@ fn save_record(conn: &Connection, range: &str, total_in: i64, total_out: i64,
     Ok(())
 }
 
-// ── tokscale-core helpers ───────────────────────────────────────────────
+// ── Message syncing ─────────────────────────────────────────────────────
+// Parse all client log files, store every message in SQLite.
+// Dedup by message_key so repeated runs only add new messages.
 
-fn build_report_options(args: &Args) -> ReportOptions {
-    let (since, until) = if args.today {
+fn sync_messages(conn: &Connection, rt: &Runtime) -> Result<(), Box<dyn std::error::Error>> {
+    let opts = LocalParseOptions {
+        home_dir: None,
+        use_env_roots: true,
+        clients: None,
+        since: None,
+        until: None,
+        year: None,
+        scanner_settings: Default::default(),
+    };
+
+    let messages = rt.block_on(tokscale_core::parse_local_unified_messages(opts))?;
+
+    let tx = conn.unchecked_transaction()?;
+    {
+        let mut stmt = tx.prepare(
+            "INSERT OR IGNORE INTO messages
+             (client, model_id, provider_id, session_id,
+              workspace_key, workspace_label,
+              timestamp, date,
+              input_tokens, output_tokens, cache_read, cache_write, reasoning,
+              cost, message_count, agent, is_turn_start, message_key)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+                     ?9, ?10, ?11, ?12, ?13,
+                     ?14, ?15, ?16, ?17, ?18)"
+        )?;
+        for msg in &messages {
+            // Messages without a natural dedup_key get a synthetic one from
+            // their content fields so re-scans never duplicate a row.
+            let key = msg.dedup_key.clone().unwrap_or_else(|| {
+                format!("{}:{}:{}:{}:{}:{}",
+                    msg.client, msg.session_id, msg.timestamp,
+                    msg.model_id, msg.tokens.input, msg.tokens.output)
+            });
+            stmt.execute(params![
+                msg.client, msg.model_id, msg.provider_id, msg.session_id,
+                msg.workspace_key, msg.workspace_label,
+                msg.timestamp, msg.date,
+                msg.tokens.input, msg.tokens.output, msg.tokens.cache_read, msg.tokens.cache_write, msg.tokens.reasoning,
+                msg.cost, msg.message_count, msg.agent, msg.is_turn_start as i32,
+                key,
+            ])?;
+        }
+    }
+    tx.commit()?;
+
+    Ok(())
+}
+
+/// Rebuild daily_summary from raw messages.
+/// Idempotent and fast (~50ms for 100K rows) — called after every sync.
+fn refresh_daily_summary(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM daily_summary", [])?;
+    conn.execute(
+        "INSERT INTO daily_summary
+         (date, client, model_id, provider_id,
+          input_tokens, output_tokens, cache_read, cache_write, reasoning,
+          cost, message_count, turn_count)
+         SELECT date, client, model_id, provider_id,
+                SUM(input_tokens), SUM(output_tokens),
+                SUM(cache_read), SUM(cache_write), SUM(reasoning),
+                SUM(cost), SUM(message_count), SUM(is_turn_start)
+         FROM messages
+         GROUP BY date, client, model_id",
+        [],
+    )?;
+    Ok(())
+}
+
+// ── SQLite-based report queries ─────────────────────────────────────────
+
+fn build_date_filter(args: &Args) -> (Option<String>, Option<String>) {
+    if args.today {
         let today = Utc::now().format("%Y-%m-%d").to_string();
         (Some(today.clone()), Some(today))
     } else if args.month {
@@ -147,42 +269,197 @@ fn build_report_options(args: &Args) -> ReportOptions {
         (Some(start), Some(end))
     } else {
         (args.since.clone(), args.until.clone())
-    };
-
-    let clients = if args.client.is_empty() { None } else { Some(args.client.clone()) };
-
-    ReportOptions {
-        home_dir: None,
-        use_env_roots: true,
-        clients,
-        since,
-        until,
-        year: args.year.clone(),
-        group_by: GroupBy::ClientModel,
-        scanner_settings: Default::default(),
     }
 }
 
-fn fetch_model_report(rt: &Runtime, args: &Args) -> Result<ModelReport, Box<dyn std::error::Error>> {
-    let opts = build_report_options(args);
-    let report = rt.block_on(tokscale_core::get_model_report(opts))
-        .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
-    Ok(report)
+/// Build SQL WHERE clause and collect parameters for date / year / client filters.
+/// Returns (where_clause_sql, param_values).
+fn build_where_clause(args: &Args) -> (String, Vec<String>) {
+    let mut clauses: Vec<String> = Vec::new();
+    let mut params: Vec<String> = Vec::new();
+
+    if let Some(ref year) = args.year {
+        clauses.push(format!("date LIKE ?{}", params.len() + 1));
+        params.push(format!("{}%", year));
+    }
+
+    let (since, until) = build_date_filter(args);
+    if let Some(ref s) = since {
+        clauses.push(format!("date >= ?{}", params.len() + 1));
+        params.push(s.clone());
+    }
+    if let Some(ref u) = until {
+        clauses.push(format!("date <= ?{}", params.len() + 1));
+        params.push(u.clone());
+    }
+
+    if !args.client.is_empty() {
+        let placeholders: Vec<String> = (0..args.client.len())
+            .map(|i| format!("?{}", params.len() + i + 1)).collect();
+        clauses.push(format!("client IN ({})", placeholders.join(",")));
+        params.extend(args.client.clone());
+    }
+
+    let where_clause = if clauses.is_empty() {
+        String::from("1=1")
+    } else {
+        clauses.join(" AND ")
+    };
+
+    (where_clause, params)
 }
 
-fn fetch_monthly_report(rt: &Runtime, args: &Args) -> Result<MonthlyReport, Box<dyn std::error::Error>> {
-    let opts = build_report_options(args);
-    let report = rt.block_on(tokscale_core::get_monthly_report(opts))
-        .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
-    Ok(report)
+fn query_model_report(conn: &Connection, args: &Args) -> Result<ModelReport, Box<dyn std::error::Error>> {
+    let start = std::time::Instant::now();
+    let (where_clause, params) = build_where_clause(args);
+
+    let sql = format!(
+        "SELECT client, model_id, MAX(provider_id),
+                SUM(input_tokens), SUM(output_tokens),
+                SUM(cache_read), SUM(cache_write),
+                SUM(reasoning), SUM(message_count),
+                SUM(cost)
+         FROM daily_summary
+         WHERE {}
+         GROUP BY client, model_id
+         ORDER BY SUM(cost) DESC", where_clause
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p as &dyn rusqlite::types::ToSql).collect();
+    let mut rows = stmt.query(param_refs.as_slice())?;
+
+    let mut entries = Vec::new();
+    while let Some(row) = rows.next()? {
+        entries.push(ModelUsage {
+            client: row.get(0)?,
+            model: row.get(1)?,
+            provider: row.get(2)?,
+            merged_clients: None,
+            workspace_key: None,
+            workspace_label: None,
+            input: row.get(3)?,
+            output: row.get(4)?,
+            cache_read: row.get(5)?,
+            cache_write: row.get(6)?,
+            reasoning: row.get(7)?,
+            message_count: row.get(8)?,
+            cost: row.get(9)?,
+        });
+    }
+
+    let total_input: i64 = entries.iter().map(|e| e.input).sum();
+    let total_output: i64 = entries.iter().map(|e| e.output).sum();
+    let total_cache_read: i64 = entries.iter().map(|e| e.cache_read).sum();
+    let total_cache_write: i64 = entries.iter().map(|e| e.cache_write).sum();
+    let total_messages: i32 = entries.iter().map(|e| e.message_count).sum();
+    let total_cost: f64 = entries.iter().map(|e| e.cost).sum();
+
+    Ok(ModelReport {
+        entries,
+        total_input,
+        total_output,
+        total_cache_read,
+        total_cache_write,
+        total_messages,
+        total_cost,
+        processing_time_ms: start.elapsed().as_millis() as u32,
+    })
 }
 
-fn fetch_hourly_report(rt: &Runtime, args: &Args) -> Result<HourlyReport, Box<dyn std::error::Error>> {
-    let opts = build_report_options(args);
-    let report = rt.block_on(tokscale_core::get_hourly_report(opts))
-        .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
-    Ok(report)
+fn query_monthly_report(conn: &Connection, args: &Args) -> Result<MonthlyReport, Box<dyn std::error::Error>> {
+    let start = std::time::Instant::now();
+    let (where_clause, params) = build_where_clause(args);
+
+    let sql = format!(
+        "SELECT substr(date, 1, 7) as month,
+                GROUP_CONCAT(DISTINCT model_id),
+                SUM(input_tokens), SUM(output_tokens),
+                SUM(cache_read), SUM(cache_write),
+                SUM(message_count), SUM(cost)
+         FROM daily_summary
+         WHERE {}
+         GROUP BY month
+         ORDER BY month", where_clause
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p as &dyn rusqlite::types::ToSql).collect();
+    let mut rows = stmt.query(param_refs.as_slice())?;
+
+    let mut entries = Vec::new();
+    while let Some(row) = rows.next()? {
+        let models_str: Option<String> = row.get(1)?;
+        entries.push(MonthlyUsage {
+            month: row.get(0)?,
+            models: models_str.map(|s| s.split(',').map(String::from).collect()).unwrap_or_default(),
+            input: row.get(2)?,
+            output: row.get(3)?,
+            cache_read: row.get(4)?,
+            cache_write: row.get(5)?,
+            message_count: row.get(6)?,
+            cost: row.get(7)?,
+        });
+    }
+
+    let total_cost: f64 = entries.iter().map(|e| e.cost).sum();
+    Ok(MonthlyReport {
+        entries,
+        total_cost,
+        processing_time_ms: start.elapsed().as_millis() as u32,
+    })
 }
+
+fn query_hourly_report(conn: &Connection, args: &Args) -> Result<HourlyReport, Box<dyn std::error::Error>> {
+    let start = std::time::Instant::now();
+    let (where_clause, params) = build_where_clause(args);
+
+    // Build SQL without format! %% escaping — use concat to avoid confusion.
+    let sql = [
+        "SELECT strftime('%Y-%m-%d %H:00', datetime(timestamp/1000, 'unixepoch')) as hour,",
+        "       GROUP_CONCAT(DISTINCT client),",
+        "       GROUP_CONCAT(DISTINCT model_id),",
+        "       SUM(input_tokens), SUM(output_tokens),",
+        "       SUM(cache_read), SUM(cache_write),",
+        "       SUM(reasoning), SUM(message_count),",
+        "       SUM(is_turn_start), SUM(cost)",
+        " FROM messages",
+        " WHERE ", &where_clause,
+        " GROUP BY hour",
+        " ORDER BY hour",
+    ].join("\n");
+    let mut stmt = conn.prepare(&sql)?;
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p as &dyn rusqlite::types::ToSql).collect();
+    let mut rows = stmt.query(param_refs.as_slice())?;
+
+    let mut entries = Vec::new();
+    while let Some(row) = rows.next()? {
+        let clients_str: Option<String> = row.get(1)?;
+        let models_str: Option<String> = row.get(2)?;
+        entries.push(HourlyUsage {
+            hour: row.get(0)?,
+            clients: clients_str.map(|s| s.split(',').map(String::from).collect()).unwrap_or_default(),
+            models: models_str.map(|s| s.split(',').map(String::from).collect()).unwrap_or_default(),
+            input: row.get(3)?,
+            output: row.get(4)?,
+            cache_read: row.get(5)?,
+            cache_write: row.get(6)?,
+            reasoning: row.get(7)?,
+            message_count: row.get(8)?,
+            turn_count: row.get::<_, i64>(9)? as i32,
+            cost: row.get(10)?,
+        });
+    }
+
+    let total_cost: f64 = entries.iter().map(|e| e.cost).sum();
+    Ok(HourlyReport {
+        entries,
+        total_cost,
+        processing_time_ms: start.elapsed().as_millis() as u32,
+    })
+}
+
+// ── tokscale-core helpers ───────────────────────────────────────────────
 
 fn fetch_pricing_lookup(rt: &Runtime, model_id: &str) -> Result<Option<pricing::lookup::LookupResult>, Box<dyn std::error::Error>> {
     let svc = rt.block_on(pricing::PricingService::get_or_init())
@@ -501,9 +778,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // ── Sync messages from log files into SQLite ────────────────────
+    // This is authoritative: once synced, reports read from SQLite
+    // regardless of whether the original log files still exist.
+    if let Err(e) = sync_messages(&conn, &rt) {
+        // Sync failure is non-fatal — SQLite data from previous runs
+        // can still generate reports. Only first-run + no-logs fails.
+        eprintln!("Warning: message sync failed (data may be stale): {}", e);
+    }
+    // Rebuild pre-aggregated daily_summary so report queries hit ~5K rows
+    // instead of scanning 100K+ raw messages.
+    if let Err(e) = refresh_daily_summary(&conn) {
+        eprintln!("Warning: daily_summary refresh failed: {}", e);
+    }
+
     // ── monthly view ───────────────────────────────────────────────
     if args.monthly {
-        let report = fetch_monthly_report(&rt, &args)?;
+        let report = query_monthly_report(&conn, &args)?;
         if args.json_output {
             #[derive(serde::Serialize)] #[serde(rename_all = "camelCase")]
             struct E { month: String, models: Vec<String>, input: i64, output: i64, cache_read: i64, cache_write: i64, message_count: i32, cost: f64 }
@@ -520,7 +811,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── hourly view ────────────────────────────────────────────────
     if args.hourly {
-        let report = fetch_hourly_report(&rt, &args)?;
+        let report = query_hourly_report(&conn, &args)?;
         if args.json_output {
             #[derive(serde::Serialize)] #[serde(rename_all = "camelCase")]
             struct E { hour: String, clients: Vec<String>, models: Vec<String>, input: i64, output: i64, cache_read: i64, cache_write: i64, reasoning: i64, message_count: i32, cost: f64 }
@@ -542,7 +833,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else { range_key.to_string() };
 
     let last_record = get_last_record(&conn, &cache_key)?;
-    let report = fetch_model_report(&rt, &args)?;
+    let report = query_model_report(&conn, &args)?;
 
     let total_in = report.total_input;
     let total_out = report.total_output;

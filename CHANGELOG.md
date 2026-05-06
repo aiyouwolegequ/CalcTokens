@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.4.2] - 2026-05-06
+
+### Added
+- `--json-output` flag for programmatic JSON output (used by remote aggregation scripts)
+
 ## [0.4.1] - 2026-05-06
 
 ### Added

@@ -15,6 +15,7 @@ Token usage report from [Tokscale](https://tokscale.com) with human-readable K/M
 - Client filtering (`-c/--client`)
 - Pricing view with CNY conversion
 - Clients overview showing all detected clients
+- `--json-output` flag for programmatic JSON output
 
 ## Install
 
@@ -56,6 +57,7 @@ calctokens --pricing        # model pricing (CNY)
 calctokens --clients        # all clients overview
 calctokens -c claude        # filter by client
 calctokens -c kimi --month  # filter by client + time range
+calctokens --json-output     # output raw JSON for scripts
 ```
 
 **Supported clients:** `opencode`, `claude`, `codex`, `gemini`, `openclaw`, `kimi`, `hermes`, `antigravity`, etc.

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.1] - 2026-05-06
+
+### Fixed
+- Share bar visualization now divides by total cost (not top model's cost),
+  so each model's bar width accurately reflects its share of total spending
+
 ## [0.6.0] - 2026-05-06
 
 ### Changed

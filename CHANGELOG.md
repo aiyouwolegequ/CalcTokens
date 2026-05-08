@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.4] - 2026-05-08
+
+### Changed
+- Column headers: Cache Write → Cache W, Cache Read → Cache R
+- Share percentage now reflects share of total tokens (not total cost)
+
 ## [0.6.3] - 2026-05-08
 
 ### Changed

@@ -1,12 +1,13 @@
 # Changelog
 
-## [0.6.2] - 2026-05-08
+## [0.6.3] - 2026-05-08
 
 ### Changed
 - Share display: Unicode bar chart replaced with numeric percentage (e.g. "59.3%")
 - DETAIL table: CNY column moved after Model, rows sorted by Total tokens (desc)
 - TOP 3 COST: sorted by CNY (desc) instead of Total tokens
-- Cache Write / Cache Read: zero values hidden (empty cell) instead of showing "0"
+
+## [0.6.2] - 2026-05-08
 
 ## [0.6.1] - 2026-05-06
 

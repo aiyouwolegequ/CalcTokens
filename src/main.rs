@@ -477,10 +477,6 @@ fn fmt_num(n: f64) -> String {
     else { format!("{:.0}", n) }
 }
 
-fn fmt_optz(n: f64) -> String {
-    if n == 0.0 { String::new() } else { fmt_num(n) }
-}
-
 fn fmt_diff(n: f64) -> String {
     if n == 0.0 { String::from("0") }
     else if n.abs() >= 1_000_000_000_000.0 { format!("{:+.2}T", n / 1_000_000_000_000.0) }
@@ -560,8 +556,8 @@ fn print_models_view(report: &ModelReport, exchange: f64, last_record: &Option<H
         let total = inp + out + cw + cr;
         detail_builder.push_record([
             &entry.client, &entry.model, &format!("¥{:.2}", entry.cost * exchange),
-            &fmt_num(inp), &fmt_num(out), &fmt_optz(cw),
-            &fmt_optz(cr), &fmt_num(total), &share_str,
+            &fmt_num(inp), &fmt_num(out), &fmt_num(cw),
+            &fmt_num(cr), &fmt_num(total), &share_str,
         ]);
     }
     let mut detail_table = detail_builder.build();

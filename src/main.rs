@@ -477,6 +477,10 @@ fn fmt_num(n: f64) -> String {
     else { format!("{:.0}", n) }
 }
 
+fn fmt_optz(n: f64) -> String {
+    if n == 0.0 { String::new() } else { fmt_num(n) }
+}
+
 fn fmt_diff(n: f64) -> String {
     if n == 0.0 { String::from("0") }
     else if n.abs() >= 1_000_000_000_000.0 { format!("{:+.2}T", n / 1_000_000_000_000.0) }
@@ -486,14 +490,12 @@ fn fmt_diff(n: f64) -> String {
     else { format!("{:+.0}", n) }
 }
 
-fn bar(cost: f64, total_cost: f64, w: usize) -> String {
-    // share = cost / total_cost × bar_width (not max_cost), so the bar
-    // accurately represents each model's share of total spending.
-    let filled = if total_cost > 0.0 && cost > 0.0 {
-        ((cost / total_cost) * w as f64).round() as usize
-    } else { 0 };
-    let filled = filled.min(w);
-    format!("{}{}", "█".repeat(filled), "░".repeat(w - filled))
+fn share_pct(cost: f64, total_cost: f64) -> String {
+    if total_cost > 0.0 && cost > 0.0 {
+        format!("{:.1}%", cost / total_cost * 100.0)
+    } else {
+        "0.0%".to_string()
+    }
 }
 
 // ── View printers ───────────────────────────────────────────────────────
@@ -543,18 +545,23 @@ fn print_models_view(report: &ModelReport, exchange: f64, last_record: &Option<H
     } else { None };
 
     let mut entries: Vec<_> = report.entries.iter().collect();
-    entries.sort_by(|a, b| b.cost.partial_cmp(&a.cost).unwrap());
+    entries.sort_by(|a, b| {
+        let ta = (a.input + a.output + a.cache_write + a.cache_read) as f64;
+        let tb = (b.input + b.output + b.cache_write + b.cache_read) as f64;
+        tb.partial_cmp(&ta).unwrap()
+    });
 
     let mut detail_builder = Builder::new();
-    detail_builder.push_record(["Client", "Model", "Input", "Output", "Cache Write", "Cache Read", "Total", "CNY", "Share"]);
+    detail_builder.push_record(["Client", "Model", "CNY", "Input", "Output", "Cache Write", "Cache Read", "Total", "Share"]);
     for entry in &entries {
         let (inp, out, cw, cr) = (entry.input as f64, entry.output as f64, entry.cache_write as f64, entry.cache_read as f64);
         if inp == 0.0 && out == 0.0 && cw == 0.0 && cr == 0.0 { continue; }
-        let bar_str = bar(entry.cost, total_cost, 20);
+        let share_str = share_pct(entry.cost, total_cost);
         let total = inp + out + cw + cr;
         detail_builder.push_record([
-            &entry.client, &entry.model, &fmt_num(inp), &fmt_num(out), &fmt_num(cw),
-            &fmt_num(cr), &fmt_num(total), &format!("¥{:.2}", entry.cost * exchange), &bar_str,
+            &entry.client, &entry.model, &format!("¥{:.2}", entry.cost * exchange),
+            &fmt_num(inp), &fmt_num(out), &fmt_optz(cw),
+            &fmt_optz(cr), &fmt_num(total), &share_str,
         ]);
     }
     let mut detail_table = detail_builder.build();
@@ -563,11 +570,13 @@ fn print_models_view(report: &ModelReport, exchange: f64, last_record: &Option<H
 
     let mut top_builder = Builder::new();
     top_builder.push_record(["#", "Model", "Total", "CNY", "Share"]);
-    for (i, entry) in entries.iter().filter(|e| e.cost > 0.0).take(3).enumerate() {
+    let mut top_entries: Vec<_> = entries.iter().filter(|e| e.cost > 0.0).collect();
+    top_entries.sort_by(|a, b| b.cost.partial_cmp(&a.cost).unwrap());
+    for (i, entry) in top_entries.iter().take(3).enumerate() {
         let total = (entry.input + entry.output + entry.cache_write + entry.cache_read) as f64;
         top_builder.push_record([
             &format!("{}", i + 1), &entry.model, &fmt_num(total),
-            &format!("¥{:.2}", entry.cost * exchange), &bar(entry.cost, total_cost, 10),
+            &format!("¥{:.2}", entry.cost * exchange), &share_pct(entry.cost, total_cost),
         ]);
     }
     let mut top_table = top_builder.build();
@@ -613,7 +622,7 @@ fn print_monthly_view(report: &MonthlyReport, exchange: f64) {
     for entry in &report.entries {
         let total = (entry.input + entry.output + entry.cache_write + entry.cache_read) as f64;
         detail_builder.push_record([
-            &entry.month, &fmt_num(total), &format!("¥{:.2}", entry.cost * exchange), &bar(entry.cost, total_cost, 20),
+            &entry.month, &fmt_num(total), &format!("¥{:.2}", entry.cost * exchange), &share_pct(entry.cost, total_cost),
         ]);
     }
     let mut detail_table = detail_builder.build();
@@ -644,7 +653,7 @@ fn print_hourly_view(report: &HourlyReport, exchange: f64) {
         detail_builder.push_record([
             &entry.hour, &clients, &models, &fmt_num(inp), &fmt_num(out),
             &fmt_num(cw + cr), &fmt_num(total), &format!("¥{:.2}", entry.cost * exchange),
-            &bar(entry.cost, total_cost, 15),
+            &share_pct(entry.cost, total_cost),
         ]);
     }
     let mut detail_table = detail_builder.build();

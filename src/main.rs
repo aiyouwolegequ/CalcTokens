@@ -503,6 +503,9 @@ fn print_models_view(report: &ModelReport, exchange: f64, last_record: &Option<H
     let total_cache_write = report.total_cache_write;
     let total_cost = report.total_cost;
     let total_rmb = total_cost * exchange;
+    let total_tokens: f64 = report.entries.iter()
+        .map(|e| (e.input + e.output + e.cache_write + e.cache_read) as f64)
+        .sum();
 
     let metric_label = match range_flag {
         "today" => "TODAY",
@@ -518,7 +521,7 @@ fn print_models_view(report: &ModelReport, exchange: f64, last_record: &Option<H
         } else { (0, 0, 0, 0, 0.0) };
 
     let mut sum_builder = Builder::new();
-    sum_builder.push_record(["Metric", "Input", "Output", "Cache Write", "Cache Read", "Total", "CNY"]);
+    sum_builder.push_record(["Metric", "Input", "Output", "Cache W", "Cache R", "Total", "CNY"]);
     sum_builder.push_record([
         metric_label, &fmt_num(total_in as f64), &fmt_num(total_out as f64), &fmt_num(total_cache_write as f64),
         &fmt_num(total_cache_read as f64), &fmt_num((total_in + total_out + total_cache_write + total_cache_read) as f64),
@@ -529,7 +532,7 @@ fn print_models_view(report: &ModelReport, exchange: f64, last_record: &Option<H
 
     let delta_table = if last_record.is_some() {
         let mut delta_builder = Builder::new();
-        delta_builder.push_record(["Δ Metric", "Δ Input", "Δ Output", "Δ Cache Write", "Δ Cache Read", "Δ Total", "Δ CNY"]);
+        delta_builder.push_record(["Δ Metric", "Δ Input", "Δ Output", "Δ Cache W", "Δ Cache R", "Δ Total", "Δ CNY"]);
         delta_builder.push_record([
             metric_label, &fmt_diff(delta_in as f64), &fmt_diff(delta_out as f64), &fmt_diff(delta_cache_write as f64),
             &fmt_diff(delta_cache_read as f64), &fmt_diff((delta_in + delta_out + delta_cache_write + delta_cache_read) as f64),
@@ -548,12 +551,12 @@ fn print_models_view(report: &ModelReport, exchange: f64, last_record: &Option<H
     });
 
     let mut detail_builder = Builder::new();
-    detail_builder.push_record(["Client", "Model", "CNY", "Input", "Output", "Cache Write", "Cache Read", "Total", "Share"]);
+    detail_builder.push_record(["Client", "Model", "CNY", "Input", "Output", "Cache W", "Cache R", "Total", "Share"]);
     for entry in &entries {
         let (inp, out, cw, cr) = (entry.input as f64, entry.output as f64, entry.cache_write as f64, entry.cache_read as f64);
         if inp == 0.0 && out == 0.0 && cw == 0.0 && cr == 0.0 { continue; }
-        let share_str = share_pct(entry.cost, total_cost);
         let total = inp + out + cw + cr;
+        let share_str = share_pct(total, total_tokens);
         detail_builder.push_record([
             &entry.client, &entry.model, &format!("¥{:.2}", entry.cost * exchange),
             &fmt_num(inp), &fmt_num(out), &fmt_num(cw),
@@ -572,7 +575,7 @@ fn print_models_view(report: &ModelReport, exchange: f64, last_record: &Option<H
         let total = (entry.input + entry.output + entry.cache_write + entry.cache_read) as f64;
         top_builder.push_record([
             &format!("{}", i + 1), &entry.model, &fmt_num(total),
-            &format!("¥{:.2}", entry.cost * exchange), &share_pct(entry.cost, total_cost),
+            &format!("¥{:.2}", entry.cost * exchange), &share_pct(total, total_tokens),
         ]);
     }
     let mut top_table = top_builder.build();
@@ -599,9 +602,12 @@ fn print_models_view(report: &ModelReport, exchange: f64, last_record: &Option<H
 fn print_monthly_view(report: &MonthlyReport, exchange: f64) {
     let total_cost = report.total_cost;
     let total_rmb = total_cost * exchange;
+    let total_tokens: f64 = report.entries.iter()
+        .map(|e| (e.input + e.output + e.cache_write + e.cache_read) as f64)
+        .sum();
 
     let mut sum_builder = Builder::new();
-    sum_builder.push_record(["Period", "Input", "Output", "Cache Write", "Cache Read", "Total", "CNY", "Msgs"]);
+    sum_builder.push_record(["Period", "Input", "Output", "Cache W", "Cache R", "Total", "CNY", "Msgs"]);
     for entry in &report.entries {
         let (inp, out, cw, cr) = (entry.input as f64, entry.output as f64, entry.cache_write as f64, entry.cache_read as f64);
         sum_builder.push_record([
@@ -618,7 +624,7 @@ fn print_monthly_view(report: &MonthlyReport, exchange: f64) {
     for entry in &report.entries {
         let total = (entry.input + entry.output + entry.cache_write + entry.cache_read) as f64;
         detail_builder.push_record([
-            &entry.month, &fmt_num(total), &format!("¥{:.2}", entry.cost * exchange), &share_pct(entry.cost, total_cost),
+            &entry.month, &fmt_num(total), &format!("¥{:.2}", entry.cost * exchange), &share_pct(total, total_tokens),
         ]);
     }
     let mut detail_table = detail_builder.build();
@@ -637,7 +643,9 @@ fn print_monthly_view(report: &MonthlyReport, exchange: f64) {
 }
 
 fn print_hourly_view(report: &HourlyReport, exchange: f64) {
-    let total_cost = report.total_cost;
+    let total_tokens: f64 = report.entries.iter()
+        .map(|e| (e.input + e.output + e.cache_write + e.cache_read) as f64)
+        .sum();
 
     let mut detail_builder = Builder::new();
     detail_builder.push_record(["Hour", "Clients", "Models", "Input", "Output", "Cache", "Total", "CNY", "Share"]);
@@ -649,7 +657,7 @@ fn print_hourly_view(report: &HourlyReport, exchange: f64) {
         detail_builder.push_record([
             &entry.hour, &clients, &models, &fmt_num(inp), &fmt_num(out),
             &fmt_num(cw + cr), &fmt_num(total), &format!("¥{:.2}", entry.cost * exchange),
-            &share_pct(entry.cost, total_cost),
+            &share_pct(total, total_tokens),
         ]);
     }
     let mut detail_table = detail_builder.build();
@@ -670,7 +678,7 @@ fn print_pricing_view(model_id: &str, result: &pricing::lookup::LookupResult, ex
     let cache_rmb = p.cache_read_input_token_cost.unwrap_or(0.0) * 1_000_000.0 * exchange;
 
     let mut builder = Builder::new();
-    builder.push_record(["Model", "Source", "Input/M", "Output/M", "Cache Read/M"]);
+    builder.push_record(["Model", "Source", "Input/M", "Output/M", "Cache R/M"]);
     builder.push_record([
         model_id, &result.source,
         &format!("¥{:.4}", input_rmb), &format!("¥{:.4}", output_rmb), &format!("¥{:.4}", cache_rmb),

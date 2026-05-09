@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.7.0] - 2026-05-10
+
+### Added
+- `--all` flag for all-time usage report with TOP 10 COST and no DELTA section.
+- Smarter DELTA comparisons:
+  - Default: Today vs last check (cached in history).
+  - `--today`: Today vs yesterday's full day data.
+  - `--month`: This month vs last month's full data.
+- Variable TOP X results based on report type:
+  - Default / `--today`: TOP 3 COST.
+  - `--month`: TOP 5 COST.
+  - `--all`: TOP 10 COST.
+
+### Changed
+- Improved display labels: metric labels and delta descriptions are now more context-aware.
+- Project License: Officially adopted MIT License (same as tokscale).
+
+### Optimized
+- SQLite Performance: Added PRAGMA optimizations including WAL mode, synchronous=NORMAL, and memory-based temp storage for faster reporting and aggregation.
+
 ## [0.6.4] - 2026-05-08
 
 ### Changed

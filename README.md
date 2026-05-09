@@ -51,9 +51,10 @@ sudo cp target/release/calctokens /usr/local/bin/   # Linux
 ## Usage
 
 ```bash
-calctokens                     # all-time usage (default)
-calctokens --today             # today's usage
-calctokens --month             # current month usage
+calctokens                     # today's usage vs last check (cached)
+calctokens --today             # today's usage vs yesterday (full)
+calctokens --month             # this month vs last month (full)
+calctokens --all               # all-time usage, TOP 10 COST, no delta
 calctokens --monthly           # monthly trend report
 calctokens --hourly            # hourly usage history
 calctokens --pricing MODEL_ID  # model pricing lookup (CNY)
@@ -65,33 +66,48 @@ calctokens --year 2026          # filter by year
 calctokens --json-output        # output JSON for scripts
 ```
 
+**Reporting Logic:**
+- **Default:** Shows **Today** vs **Last Check**, TOP 3 COST.
+- **`--today`:** Shows **Today** vs **Yesterday**, TOP 3 COST.
+- **`--month`:** Shows **This Month** vs **Last Month**, TOP 5 COST.
+- **`--all`:** Shows **All-time**, TOP 10 COST.
+
 **Supported clients:** `opencode`, `claude`, `codex`, `gemini`, `openclaw`, `kimi`, `hermes`, `antigravity`, etc.
 
 ## Output
 
 ```
-  calctokens  --  Token Usage Report   [ Today ]
+  calctokens  --  Token Usage Report   [ TODAY ]
 
   SUMMARY
-╭────────┬───────┬────────┬─────────────┬────────────┬────────┬────────╮
-│ Metric │ Input │ Output │ Cache Write │ Cache Read │ Total  │ CNY    │
-├────────┼───────┼────────┼─────────────┼────────────┼────────┼────────┤
-│ TODAY  │ 4.58M │ 34.27K │ 301.65K     │ 6.29M      │ 11.21M │ ¥12.03 │
-╰────────┴───────┴────────┴─────────────┴────────────┴────────┴────────╯
+╭────────┬───────┬────────┬─────────┬─────────┬────────┬────────╮
+│ Metric │ Input │ Output │ Cache W │ Cache R │ Total  │ CNY    │
+├────────┼───────┼────────┼─────────┼─────────┼────────┼────────┤
+│ TODAY  │ 4.58M │ 34.27K │ 301.65K │ 6.29M   │ 11.21M │ ¥12.03 │
+╰────────┴───────┴────────┴─────────┴─────────┴────────┴────────╯
+
+  DELTA (vs yesterday)
+╭──────────────┬─────────┬──────────┬───────────┬───────────┬─────────┬─────────╮
+│ Δ Metric     │ Δ Input │ Δ Output │ Δ Cache W │ Δ Cache R │ Δ Total │ Δ CNY   │
+├──────────────┼─────────┼──────────┼───────────┼───────────┼─────────┼─────────┤
+│ vs yesterday │ +1.2M   │ +5.2K    │ +100K     │ +2.1M     │ +3.4M   │ +¥2.50  │
+╰──────────────┴─────────┴──────────┴───────────┴───────────┴─────────┴─────────╯
+
   DETAIL
-╭───────┬───────────────────────┬────────┬───────┬────────────┬───────────┬──────┬───────┬─────────────────────╮
-│Client │Model                  │Input   │Output │Cache Write │Cache Read │Total │CNY    │Share                │
-├───────┼───────────────────────┼────────┼───────┼────────────┼───────────┼──────┼───────┼─────────────────────┤
-│claude │minimax-m2.7-highspeed │4.14M   │19.69K │301.65K     │2.03M      │6.49M │¥10.00 │████████████████████ │
-│claude │minimax-m2.7           │444.90K │14.58K │0           │4.26M      │4.72M │¥2.03  │████░░░░░░░░░░░░░░░░ │
-╰───────┴───────────────────────┴────────┴───────┴────────────┴───────────┴──────┴───────┴─────────────────────╯
+╭───────┬───────────────────────┬────────┬───────┬─────────┬─────────┬───────┬───────┬───────╮
+│Client │Model                  │CNY     │Input  │Output   │Cache W  │Cache R│Total  │Share  │
+├───────┼───────────────────────┼────────┼───────┼─────────┼─────────┼───────┼───────┼───────┤
+│claude │minimax-m2.7-highspeed │¥10.00  │4.14M  │19.69K   │301.65K  │2.03M  │6.49M  │57.9%  │
+│claude │minimax-m2.7           │¥2.03   │444.90K│14.58K   │0        │4.26M  │4.72M  │42.1%  │
+╰───────┴───────────────────────┴────────┴───────┴─────────┴─────────┴───────┴───────┴───────╯
+
   TOP 3 COST
-╭───┬────────────────────────┬───────┬────────┬────────────╮
-│ # │ Model                  │ Total │ CNY    │ Share      │
-├───┼────────────────────────┼───────┼────────┼────────────┤
-│ 1 │ minimax-m2.7-highspeed │ 6.49M │ ¥10.00 │ ██████████ │
-│ 2 │ minimax-m2.7           │ 4.72M │ ¥2.03  │ ██░░░░░░░░ │
-╰───┴────────────────────────┴───────┴────────┴────────────╯
+╭───┬────────────────────────┬───────┬────────┬───────╮
+│ # │ Model                  │ Total │ CNY    │ Share │
+├───┼────────────────────────┼───────┼────────┼───────┤
+│ 1 │ minimax-m2.7-highspeed │ 6.49M │ ¥10.00 │ 57.9% │
+│ 2 │ minimax-m2.7           │ 4.72M │ ¥2.03  │ 42.1% │
+╰───┴────────────────────────┴───────┴────────┴───────╯
 ```
 
 ## Tech Stack
@@ -102,8 +118,9 @@ calctokens --json-output        # output JSON for scripts
 - `clap` — CLI argument parsing
 - `reqwest` — HTTP client for exchange rate API
 - `serde` / `serde_json` — JSON serialization
-- `rusqlite` — SQLite authoritative data store (messages persist across log deletions)
+- `rusqlite` — SQLite authoritative data store with WAL optimization
 
 ## License
 
-MIT
+MIT (same as [tokscale](https://github.com/junhoyeo/tokscale))
+

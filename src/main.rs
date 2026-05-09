@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{Utc, Datelike};
 use clap::Parser;
 use reqwest::blocking::Client;
 use rusqlite::{Connection, params};
@@ -25,18 +25,23 @@ struct Args {
     /// Filter by client(s): claude, opencode, codex, gemini, openclaw, hermes, kimi, qwen, antigravity, etc.
     #[arg(long, short, num_args = 1..)]
     client: Vec<String>,
-    #[arg(long, conflicts_with_all = ["month", "monthly", "hourly", "pricing", "clients"])]
+    /// Today's usage (since 00:00) vs yesterday's total, TOP 3 COST
+    #[arg(long, conflicts_with_all = ["month", "all", "monthly", "hourly", "pricing", "clients"])]
     today: bool,
-    #[arg(long, conflicts_with_all = ["today", "monthly", "hourly", "pricing", "clients"])]
+    /// This month's usage vs last month's total, TOP 5 COST
+    #[arg(long, conflicts_with_all = ["today", "all", "monthly", "hourly", "pricing", "clients"])]
     month: bool,
-    #[arg(long, conflicts_with_all = ["today", "month", "hourly", "pricing", "clients"])]
+    /// All time usage, no DELTA, TOP 10 COST
+    #[arg(long, conflicts_with_all = ["today", "month", "monthly", "hourly", "pricing", "clients"])]
+    all: bool,
+    #[arg(long, conflicts_with_all = ["today", "month", "all", "hourly", "pricing", "clients"])]
     monthly: bool,
-    #[arg(long, conflicts_with_all = ["today", "month", "monthly", "pricing", "clients"])]
+    #[arg(long, conflicts_with_all = ["today", "month", "all", "monthly", "pricing", "clients"])]
     hourly: bool,
     /// Look up pricing for a model (e.g. claude-sonnet-4-20250514)
     #[arg(long, value_name = "MODEL_ID")]
     pricing: Option<String>,
-    #[arg(long, conflicts_with_all = ["today", "month", "monthly", "hourly"])]
+    #[arg(long, conflicts_with_all = ["today", "month", "all", "monthly", "hourly"])]
     clients: bool,
     /// Filter: start date (YYYY-MM-DD)
     #[arg(long)]
@@ -57,6 +62,11 @@ struct ExchangeResp { rates: Rates }
 #[derive(Deserialize, Debug)]
 struct Rates { #[serde(rename = "CNY")] cny: f64 }
 
+#[derive(Debug, Clone, Default)]
+struct Stats {
+    input: i64, output: i64, cache_read: i64, cache_write: i64, cost: f64,
+}
+
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 struct HistoryRecord {
@@ -68,6 +78,12 @@ struct HistoryRecord {
 // ── DB helpers ──────────────────────────────────────────────────────────
 
 fn init_db(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "PRAGMA journal_mode = WAL;
+         PRAGMA synchronous = NORMAL;
+         PRAGMA temp_store = MEMORY;
+         PRAGMA cache_size = -64000;",
+    )?;
     conn.execute(
         "CREATE TABLE IF NOT EXISTS history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -267,6 +283,12 @@ fn build_date_filter(args: &Args) -> (Option<String>, Option<String>) {
         let start = now.format("%Y-%m-01").to_string();
         let end = now.format("%Y-%m-%d").to_string();
         (Some(start), Some(end))
+    } else if args.all {
+        (None, None)
+    } else if args.since.is_none() && args.until.is_none() && args.year.is_none() {
+        // Default to today if no other filters
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        (Some(today.clone()), Some(today))
     } else {
         (args.since.clone(), args.until.clone())
     }
@@ -459,6 +481,48 @@ fn query_hourly_report(conn: &Connection, args: &Args) -> Result<HourlyReport, B
     })
 }
 
+fn get_stats_for_range(conn: &Connection, since: Option<String>, until: Option<String>, clients: &[String]) -> rusqlite::Result<Stats> {
+    let mut clauses = vec!["1=1".to_string()];
+    let mut params: Vec<String> = vec![];
+
+    if let Some(s) = since {
+        clauses.push(format!("date >= ?{}", params.len() + 1));
+        params.push(s);
+    }
+    if let Some(u) = until {
+        clauses.push(format!("date <= ?{}", params.len() + 1));
+        params.push(u);
+    }
+    if !clients.is_empty() {
+        let placeholders: Vec<String> = (0..clients.len())
+            .map(|i| format!("?{}", params.len() + i + 1)).collect();
+        clauses.push(format!("client IN ({})", placeholders.join(",")));
+        params.extend(clients.iter().cloned());
+    }
+
+    let sql = format!(
+        "SELECT SUM(input_tokens), SUM(output_tokens), SUM(cache_read), SUM(cache_write), SUM(cost)
+         FROM daily_summary WHERE {}",
+        clauses.join(" AND ")
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p as &dyn rusqlite::types::ToSql).collect();
+    let mut rows = stmt.query(param_refs.as_slice())?;
+
+    if let Some(row) = rows.next()? {
+        Ok(Stats {
+            input: row.get::<_, Option<i64>>(0)?.unwrap_or(0),
+            output: row.get::<_, Option<i64>>(1)?.unwrap_or(0),
+            cache_read: row.get::<_, Option<i64>>(2)?.unwrap_or(0),
+            cache_write: row.get::<_, Option<i64>>(3)?.unwrap_or(0),
+            cost: row.get::<_, Option<f64>>(4)?.unwrap_or(0.0),
+        })
+    } else {
+        Ok(Stats::default())
+    }
+}
+
 // ── tokscale-core helpers ───────────────────────────────────────────────
 
 fn fetch_pricing_lookup(rt: &Runtime, model_id: &str) -> Result<Option<pricing::lookup::LookupResult>, Box<dyn std::error::Error>> {
@@ -496,7 +560,7 @@ fn share_pct(cost: f64, total_cost: f64) -> String {
 
 // ── View printers ───────────────────────────────────────────────────────
 
-fn print_models_view(report: &ModelReport, exchange: f64, last_record: &Option<HistoryRecord>, range_flag: &str) {
+fn print_models_view(report: &ModelReport, exchange: f64, delta_stats: Option<Stats>, range_flag: &str, top_n: usize, delta_label: &str) {
     let total_in = report.total_input;
     let total_out = report.total_output;
     let total_cache_read = report.total_cache_read;
@@ -510,14 +574,15 @@ fn print_models_view(report: &ModelReport, exchange: f64, last_record: &Option<H
     let metric_label = match range_flag {
         "today" => "TODAY",
         "month" => "MONTH",
-        _ => "ALL",
+        "all" => "ALL",
+        _ => "RANGE",
     };
 
     let (delta_in, delta_out, delta_cache_read, delta_cache_write, delta_rmb) =
-        if let Some(last) = last_record {
-            (total_in - last.total_input, total_out - last.total_output,
-             total_cache_read - last.total_cache_read, total_cache_write - last.total_cache_write,
-             total_rmb - last.total_rmb)
+        if let Some(ref ds) = delta_stats {
+            (total_in - ds.input, total_out - ds.output,
+             total_cache_read - ds.cache_read, total_cache_write - ds.cache_write,
+             total_rmb - (ds.cost * exchange))
         } else { (0, 0, 0, 0, 0.0) };
 
     let mut sum_builder = Builder::new();
@@ -530,12 +595,12 @@ fn print_models_view(report: &ModelReport, exchange: f64, last_record: &Option<H
     let mut sum_table = sum_builder.build();
     sum_table.with(Style::rounded()).with(Padding::new(1, 1, 0, 0));
 
-    let delta_table = if last_record.is_some() {
+    let delta_table = if delta_stats.is_some() {
         let mut delta_builder = Builder::new();
         delta_builder.push_record(["Δ Metric", "Δ Input", "Δ Output", "Δ Cache W", "Δ Cache R", "Δ Total", "Δ CNY"]);
         delta_builder.push_record([
-            metric_label, &fmt_diff(delta_in as f64), &fmt_diff(delta_out as f64), &fmt_diff(delta_cache_write as f64),
-            &fmt_diff(delta_cache_read as f64), &fmt_diff((delta_in + delta_out + delta_cache_write + delta_cache_read) as f64),
+            delta_label, &fmt_diff(delta_in as f64), &fmt_diff(delta_out as f64), &fmt_diff(delta_cache_write as f64),
+            &fmt_diff(delta_cache_read as f64), &fmt_diff((delta_in + delta_out + delta_cache_read + delta_cache_write) as f64),
             &format!("¥{:+.2}", delta_rmb),
         ]);
         let mut dt = delta_builder.build();
@@ -571,7 +636,7 @@ fn print_models_view(report: &ModelReport, exchange: f64, last_record: &Option<H
     top_builder.push_record(["#", "Model", "Total", "CNY", "Share"]);
     let mut top_entries: Vec<_> = entries.iter().filter(|e| e.cost > 0.0).collect();
     top_entries.sort_by(|a, b| b.cost.partial_cmp(&a.cost).unwrap());
-    for (i, entry) in top_entries.iter().take(3).enumerate() {
+    for (i, entry) in top_entries.iter().take(top_n).enumerate() {
         let total = (entry.input + entry.output + entry.cache_write + entry.cache_read) as f64;
         top_builder.push_record([
             &format!("{}", i + 1), &entry.model, &fmt_num(total),
@@ -588,14 +653,14 @@ fn print_models_view(report: &ModelReport, exchange: f64, last_record: &Option<H
     print!("{}", sum_table);
     println!();
     if let Some(dt) = delta_table {
-        println!("  DELTA (since last check)");
+        println!("  DELTA ({})", delta_label);
         print!("{}", dt);
         println!();
     }
     println!("  DETAIL");
     print!("{}", detail_table);
     println!();
-    println!("  TOP 3 COST");
+    println!("  TOP {} COST", top_n);
     println!("{}", top_table);
 }
 
@@ -722,9 +787,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let range_key = if args.today { "today" }
         else if args.month { "month" }
+        else if args.all { "all" }
         else if args.monthly { "monthly" }
         else if args.hourly { "hourly" }
-        else { "all" };
+        else { "default" };
 
     let conn = Connection::open(db_path())?;
     init_db(&conn)?;
@@ -793,15 +859,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // ── Sync messages from log files into SQLite ────────────────────
-    // This is authoritative: once synced, reports read from SQLite
-    // regardless of whether the original log files still exist.
     if let Err(e) = sync_messages(&conn, &rt) {
-        // Sync failure is non-fatal — SQLite data from previous runs
-        // can still generate reports. Only first-run + no-logs fails.
         eprintln!("Warning: message sync failed (data may be stale): {}", e);
     }
-    // Rebuild pre-aggregated daily_summary so report queries hit ~5K rows
-    // instead of scanning 100K+ raw messages.
     if let Err(e) = refresh_daily_summary(&conn) {
         eprintln!("Warning: daily_summary refresh failed: {}", e);
     }
@@ -840,23 +900,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // ── models view (default) ──────────────────────────────────────
-    let client_tag = if args.client.is_empty() { "".to_string() } else { args.client.join(",") };
-    let cache_key = if !client_tag.is_empty() {
-        format!("{}_{}", range_key, client_tag)
-    } else { range_key.to_string() };
+    // ── models view (default / today / month / all) ────────────────
+    let (delta_stats, top_n, delta_label) = if args.today {
+        let yesterday = (Utc::now() - chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+        let stats = get_stats_for_range(&conn, Some(yesterday.clone()), Some(yesterday), &args.client)?;
+        (Some(stats), 3, "vs yesterday")
+    } else if args.month {
+        let now = Utc::now();
+        let year = now.year();
+        let month = now.month();
+        let (ly, lm) = if month == 1 { (year - 1, 12) } else { (year, month - 1) };
+        let last_month_start = format!("{:04}-{:02}-01", ly, lm);
+        let last_month_end = format!("{:04}-{:02}-{:02}", ly, lm,
+            if [1, 3, 5, 7, 8, 10, 12].contains(&lm) { 31 }
+            else if [4, 6, 9, 11].contains(&lm) { 30 }
+            else { if (ly % 4 == 0 && ly % 100 != 0) || ly % 400 == 0 { 29 } else { 28 } }
+        );
+        let stats = get_stats_for_range(&conn, Some(last_month_start), Some(last_month_end), &args.client)?;
+        (Some(stats), 5, "vs last month")
+    } else if args.all {
+        (None, 10, "")
+    } else if args.since.is_some() || args.until.is_some() || args.year.is_some() {
+        (None, 3, "")
+    } else {
+        // Default: Delta vs last check
+        let client_tag = if args.client.is_empty() { "".to_string() } else { args.client.join(",") };
+        let cache_key = format!("default_{}", client_tag);
+        let last = get_last_record(&conn, &cache_key)?;
+        let stats = last.map(|r| Stats {
+            input: r.total_input, output: r.total_output,
+            cache_read: r.total_cache_read, cache_write: r.total_cache_write,
+            cost: r.total_cost,
+        });
+        (stats, 3, "since last check")
+    };
 
-    let last_record = get_last_record(&conn, &cache_key)?;
     let report = query_model_report(&conn, &args)?;
 
-    let total_in = report.total_input;
-    let total_out = report.total_output;
-    let total_cache_read = report.total_cache_read;
-    let total_cache_write = report.total_cache_write;
-    let total_cost = report.total_cost;
-    let total_rmb = total_cost * exchange;
-
-    save_record(&conn, &cache_key, total_in, total_out, total_cache_read, total_cache_write, total_cost, total_rmb)?;
+    // Save record for "since last check" if in default mode
+    if !args.today && !args.month && !args.all && args.since.is_none() && args.until.is_none() && args.year.is_none() {
+        let client_tag = if args.client.is_empty() { "".to_string() } else { args.client.join(",") };
+        let cache_key = format!("default_{}", client_tag);
+        save_record(&conn, &cache_key, report.total_input, report.total_output,
+                    report.total_cache_read, report.total_cache_write, report.total_cost, report.total_cost * exchange)?;
+    }
 
     if args.json_output {
         #[derive(serde::Serialize)] #[serde(rename_all = "camelCase")]
@@ -872,7 +959,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             total_cost: report.total_cost * exchange, processing_time_ms: report.processing_time_ms };
         println!("{}", serde_json::to_string_pretty(&out)?);
     } else {
-        print_models_view(&report, exchange, &last_record, range_key);
+        print_models_view(&report, exchange, delta_stats, range_key, top_n, delta_label);
     }
 
     Ok(())

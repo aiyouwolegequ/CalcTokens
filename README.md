@@ -12,8 +12,9 @@ Data is persisted in SQLite and survives client log file deletions — delete `~
 - K/M/B/T number formatting
 - Live USD → CNY exchange rate
 - Cache Write / Cache Read token breakdown
-- Share bar chart in detail and TOP 3 (accurate percentage of total cost)
-- SQLite storage with delta comparison (since last check)
+- Share percentage in detail (tokens) and TOP X (cost)
+- SQLite storage with intelligent delta comparison (last check, yesterday, or last month)
+- High-concurrency optimized database access (WAL mode & busy timeout)
 - Daily caching for exchange rate and API results
 - Monthly & Hourly trend reports
 - Client filtering (`-c/--client`)
@@ -21,6 +22,7 @@ Data is persisted in SQLite and survives client log file deletions — delete `~
 - Clients overview (`--clients`)
 - Time filtering: `--since`, `--until`, `--year`
 - `--json-output` flag for all report types
+- Supports multi-machine aggregation via `totaltokens` script
 
 ## Install
 
@@ -118,7 +120,7 @@ calctokens --json-output        # output JSON for scripts
 - `clap` — CLI argument parsing
 - `reqwest` — HTTP client for exchange rate API
 - `serde` / `serde_json` — JSON serialization
-- `rusqlite` — SQLite authoritative data store with WAL optimization
+- `rusqlite` — SQLite authoritative data store with WAL & concurrency optimizations
 
 ## License
 

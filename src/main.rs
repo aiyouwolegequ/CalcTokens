@@ -640,7 +640,7 @@ fn print_models_view(report: &ModelReport, exchange: f64, delta_stats: Option<St
         let total = (entry.input + entry.output + entry.cache_write + entry.cache_read) as f64;
         top_builder.push_record([
             &format!("{}", i + 1), &entry.model, &fmt_num(total),
-            &format!("¥{:.2}", entry.cost * exchange), &share_pct(total, total_tokens),
+            &format!("¥{:.2}", entry.cost * exchange), &share_pct(entry.cost, total_cost),
         ]);
     }
     let mut top_table = top_builder.build();

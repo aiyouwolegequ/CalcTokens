@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.7.1] - 2026-05-10
+
+### Changed
+- TOP X COST table: "Share" column now calculates percentage based on CNY (cost) instead of total tokens.
+
 ## [0.7.0] - 2026-05-10
 
 ### Added

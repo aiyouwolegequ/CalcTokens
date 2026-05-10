@@ -82,7 +82,8 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         "PRAGMA journal_mode = WAL;
          PRAGMA synchronous = NORMAL;
          PRAGMA temp_store = MEMORY;
-         PRAGMA cache_size = -64000;",
+         PRAGMA cache_size = -64000;
+         PRAGMA busy_timeout = 5000;",
     )?;
     conn.execute(
         "CREATE TABLE IF NOT EXISTS history (
@@ -93,6 +94,7 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             total_cost REAL NOT NULL, total_rmb REAL NOT NULL
         )", [],
     )?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_history_range_id ON history(range, id DESC)", [])?;
     conn.execute(
         "CREATE TABLE IF NOT EXISTS exchange_cache (
             currency TEXT PRIMARY KEY, rate REAL NOT NULL, fetched_date TEXT NOT NULL

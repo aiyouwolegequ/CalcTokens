@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.2] - 2026-05-10
+
+### Optimized
+- SQLite Performance: Added `busy_timeout = 5000` to handle concurrent access better in WAL mode.
+- Database: Added index `idx_history_range_id` to the `history` table for faster snapshot lookups.
+
 ## [0.7.1] - 2026-05-10
 
 ### Changed

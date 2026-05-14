@@ -153,6 +153,7 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         )",
         [],
     )?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_daily_summary_model ON daily_summary(model_id)", [])?;
     Ok(())
 }
 
@@ -391,6 +392,48 @@ fn query_model_report(conn: &Connection, args: &Args) -> Result<ModelReport, Box
     })
 }
 
+fn query_top_models(conn: &Connection, args: &Args, top_n: usize) -> Result<Vec<ModelUsage>, Box<dyn std::error::Error>> {
+    let (where_clause, params) = build_where_clause(args);
+
+    let sql = format!(
+        "SELECT model_id, MAX(provider_id),
+                SUM(input_tokens), SUM(output_tokens),
+                SUM(cache_read), SUM(cache_write),
+                SUM(reasoning), SUM(message_count),
+                SUM(cost)
+         FROM daily_summary
+         WHERE {}
+         GROUP BY model_id
+         ORDER BY SUM(cost) DESC
+         LIMIT {}", where_clause, top_n
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p as &dyn rusqlite::types::ToSql).collect();
+    let mut rows = stmt.query(param_refs.as_slice())?;
+
+    let mut entries = Vec::new();
+    while let Some(row) = rows.next()? {
+        entries.push(ModelUsage {
+            client: "".to_string(), // Empty as it's grouped by model across all clients
+            model: row.get(0)?,
+            provider: row.get(1)?,
+            merged_clients: None,
+            workspace_key: None,
+            workspace_label: None,
+            input: row.get(2)?,
+            output: row.get(3)?,
+            cache_read: row.get(4)?,
+            cache_write: row.get(5)?,
+            reasoning: row.get(6)?,
+            message_count: row.get(7)?,
+            cost: row.get(8)?,
+        });
+    }
+    
+    Ok(entries)
+}
+
 fn query_monthly_report(conn: &Connection, args: &Args) -> Result<MonthlyReport, Box<dyn std::error::Error>> {
     let start = std::time::Instant::now();
     let (where_clause, params) = build_where_clause(args);
@@ -562,7 +605,7 @@ fn share_pct(cost: f64, total_cost: f64) -> String {
 
 // ── View printers ───────────────────────────────────────────────────────
 
-fn print_models_view(report: &ModelReport, exchange: f64, delta_stats: Option<Stats>, range_flag: &str, top_n: usize, delta_label: &str) {
+fn print_models_view(report: &ModelReport, top_models: &[ModelUsage], exchange: f64, delta_stats: Option<Stats>, range_flag: &str, delta_label: &str) {
     let total_in = report.total_input;
     let total_out = report.total_output;
     let total_cache_read = report.total_cache_read;
@@ -636,9 +679,7 @@ fn print_models_view(report: &ModelReport, exchange: f64, delta_stats: Option<St
 
     let mut top_builder = Builder::new();
     top_builder.push_record(["#", "Model", "Total", "CNY", "Share"]);
-    let mut top_entries: Vec<_> = entries.iter().filter(|e| e.cost > 0.0).collect();
-    top_entries.sort_by(|a, b| b.cost.partial_cmp(&a.cost).unwrap());
-    for (i, entry) in top_entries.iter().take(top_n).enumerate() {
+    for (i, entry) in top_models.iter().filter(|e| e.cost > 0.0).enumerate() {
         let total = (entry.input + entry.output + entry.cache_write + entry.cache_read) as f64;
         top_builder.push_record([
             &format!("{}", i + 1), &entry.model, &fmt_num(total),
@@ -662,7 +703,8 @@ fn print_models_view(report: &ModelReport, exchange: f64, delta_stats: Option<St
     println!("  DETAIL");
     print!("{}", detail_table);
     println!();
-    println!("  TOP {} COST", top_n);
+    let display_count = top_models.iter().filter(|e| e.cost > 0.0).count();
+    println!("  TOP {} COST", display_count);
     println!("{}", top_table);
 }
 
@@ -938,6 +980,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let report = query_model_report(&conn, &args)?;
+    let top_models = query_top_models(&conn, &args, top_n)?;
 
     // Save record for "since last check" if in default mode
     if !args.today && !args.month && !args.all && args.since.is_none() && args.until.is_none() && args.year.is_none() {
@@ -961,7 +1004,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             total_cost: report.total_cost * exchange, processing_time_ms: report.processing_time_ms };
         println!("{}", serde_json::to_string_pretty(&out)?);
     } else {
-        print_models_view(&report, exchange, delta_stats, range_key, top_n, delta_label);
+        print_models_view(&report, &top_models, exchange, delta_stats, range_key, delta_label);
     }
 
     Ok(())

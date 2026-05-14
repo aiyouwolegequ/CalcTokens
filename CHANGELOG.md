@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.3] - 2026-05-14
+
+### Optimized
+- Database: Added `idx_daily_summary_model` index on `daily_summary` table to speed up TOP x COST groupings.
+- SQL: Refactored `TOP x COST` query to use a pure SQL `GROUP BY model_id` for accurate and efficient cost aggregation across all clients.
+
 ## [0.7.2] - 2026-05-10
 
 ### Optimized

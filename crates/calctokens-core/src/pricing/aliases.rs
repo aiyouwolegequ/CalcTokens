@@ -134,11 +134,11 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
 
 static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     let mut m = HashMap::new();
-    m.insert("gemini-3-flash-a", "Gemini-3.5-Flash（High）");
-    m.insert("gemini-3-flash-preview", "Gemini-3.5-Flash（Medium）");
-    m.insert("gemini-3-flash", "Gemini-3.5-Flash（Medium）");
-    m.insert("gemini-3-flash-c", "Gemini-3.5-Flash（Medium）");
-    m.insert("model_placeholder_m47", "Gemini-3.5-Flash（Medium）");
+    m.insert("gemini-3-flash-a", "Gemini-3.1-Flash");
+    m.insert("gemini-3-flash-preview", "Gemini-3.1-Flash");
+    m.insert("gemini-3-flash", "Gemini-3.1-Flash");
+    m.insert("gemini-3-flash-c", "Gemini-3.1-Flash");
+    m.insert("model_placeholder_m47", "Gemini-3.1-Flash");
 
     m.insert("gemini-3.1-pro-high", "Gemini-3.1-Pro（High）");
     m.insert("gemini-3-pro-high", "Gemini-3.1-Pro（High）");
@@ -231,7 +231,7 @@ static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
 
     // Gemini preview variants
     m.insert("gemini-3.1-pro-preview", "Gemini-3.1-Pro");
-    m.insert("gemini-3-flash-preview", "Gemini-3.5-Flash");
+    m.insert("gemini-3-flash-preview", "Gemini-3.1-Flash");
 
     m
 });
@@ -264,7 +264,7 @@ mod tests {
         );
         assert_eq!(
             resolve_pretty_name("gemini-3-flash-c"),
-            Some("Gemini-3.5-Flash（Medium）")
+            Some("Gemini-3.1-Flash")
         );
         assert_eq!(
             resolve_pretty_name("claude-opus-4.6-thinking"),

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.8.7] - 2026-05-22
+
+### Fixed
+- **Gemini Flash naming**: `gemini-3-flash-preview` canonical now displays as "Gemini-3.1-Flash" (previously incorrectly labeled "Gemini-3.5-Flash", which is a different OpenRouter model).
+
 ## [0.8.6] - 2026-05-22
 
 ### Changed

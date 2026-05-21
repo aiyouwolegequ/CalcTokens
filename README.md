@@ -61,6 +61,7 @@ calctokens --monthly           # monthly trend report
 calctokens --hourly            # hourly usage history
 calctokens --pricing MODEL_ID  # model pricing lookup (CNY)
 calctokens --clients           # all detected clients
+calctokens --version           # print version
 calctokens -c claude           # filter by client
 calctokens -c kimi --month     # filter by client + time range
 calctokens --since 2026-01-01  # filter by start date
@@ -125,4 +126,3 @@ calctokens --json-output        # output JSON for scripts
 ## License
 
 MIT (same as [tokscale](https://github.com/junhoyeo/tokscale))
-

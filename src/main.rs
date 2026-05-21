@@ -22,7 +22,7 @@ fn db_path() -> String {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "calctokens", bin_name = "calctokens", about = "AI coding assistant token usage tracker (CNY)")]
+#[command(name = "calctokens", bin_name = "calctokens", version, about = "AI coding assistant token usage tracker (CNY)")]
 struct Args {
     /// Filter by client(s): claude, opencode, codex, gemini, openclaw, hermes, kimi, qwen, antigravity, etc.
     #[arg(long, short, num_args = 1..)]

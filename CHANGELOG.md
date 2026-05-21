@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.8.3] - 2026-05-21
+
+### Added
+- `--version` / `-V` CLI option for printing the installed calctokens version.
+
 ## [0.8.2] - 2026-05-21
 
 ### Fixed

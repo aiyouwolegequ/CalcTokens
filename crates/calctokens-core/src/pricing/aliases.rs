@@ -143,7 +143,7 @@ static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("gemini-3.1-pro-low", "Gemini-3.1-Pro（Low）");
     m.insert("gemini-3-pro-low", "Gemini-3.1-Pro（Low）");
     m.insert("model_placeholder_m37", "Gemini-3.1-Pro（Low）");
-    m.insert("gemini-3.1-pro", "Gemini-3.1-Pro（Low）");
+    m.insert("gemini-3.1-pro", "Gemini-3.1-Pro");
 
     m.insert("claude-sonnet-4-6-thinking", "Claude-Sonnet-4.6（Thinking）");
     m.insert("claude-sonnet-4.6-thinking", "Claude-Sonnet-4.6（Thinking）");
@@ -203,7 +203,11 @@ static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     // Kimi models
     m.insert("kimi-for-coding", "Kimi-K2.5");
     m.insert("kimi-k2.5", "Kimi-K2.5");
+    m.insert("kimi-k2.6", "Kimi-K2.6");
     m.insert("kimi-k2-thinking", "Kimi-K2-Thinking");
+    m.insert("k2p5", "Kimi-K2-Thinking");
+    m.insert("k2-p5", "Kimi-K2-Thinking");
+    m.insert("kimi-latest", "Kimi-Latest");
     m.insert("kimi-k2.5-nvfp4", "Kimi-K2.5");
     m.insert("kimi-k2-instruct-0905", "Kimi-K2.5");
 

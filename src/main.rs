@@ -57,6 +57,9 @@ struct Args {
     /// Output as JSON (works with all report types)
     #[arg(long)]
     json_output: bool,
+    /// Sync OpenRouter model metadata and exchange rates to local database
+    #[arg(long, conflicts_with_all = ["today", "month", "all", "monthly", "hourly", "pricing", "clients"])]
+    upgrade: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -107,8 +110,6 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             range TEXT PRIMARY KEY, json_data TEXT NOT NULL, fetched_date TEXT NOT NULL
         )", [],
     )?;
-    // messages is the authoritative raw data store — once synced, reports
-    // read from here regardless of whether source log files still exist.
     conn.execute(
         "CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,13 +136,27 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
     )?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_date ON messages(date)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_client ON messages(client)", [])?;
-    // daily_summary pre-aggregates messages by date+client+model so
-    // model/monthly reports avoid scanning 100K+ raw rows.
+
+    // canonical_id: normalized key for aggregation across raw model_id variants.
+    // Added via migration so existing databases don't need full rebuild.
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS daily_summary (
+        "ALTER TABLE messages ADD COLUMN canonical_id TEXT",
+        [],
+    ).ok(); // Ignore error if column already exists
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_canonical ON messages(canonical_id)", [])?;
+
+    // Backfill canonical_id for existing rows that don't have one yet.
+    // Uses resolve_alias() to map raw/pretty model_ids to a stable canonical form.
+    backfill_canonical_ids(conn)?;
+
+    // daily_summary: rebuilt with canonical_id as the aggregation key.
+    // Drop and recreate to change PK from (date, client, model_id) to (date, client, canonical_id).
+    conn.execute("DROP TABLE IF EXISTS daily_summary", [])?;
+    conn.execute(
+        "CREATE TABLE daily_summary (
             date TEXT NOT NULL,
             client TEXT NOT NULL,
-            model_id TEXT NOT NULL,
+            canonical_id TEXT NOT NULL,
             provider_id TEXT NOT NULL,
             input_tokens INTEGER NOT NULL,
             output_tokens INTEGER NOT NULL,
@@ -151,93 +166,59 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             cost REAL NOT NULL,
             message_count INTEGER NOT NULL,
             turn_count INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (date, client, model_id)
+            PRIMARY KEY (date, client, canonical_id)
         )",
         [],
     )?;
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_daily_summary_model ON daily_summary(model_id)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_daily_summary_canonical ON daily_summary(canonical_id)", [])?;
 
-    // Migrate old model names to new pretty names for Antigravity client
+    // OpenRouter model metadata — upserted by 'calctokens upgrade'.
     conn.execute(
-        "UPDATE messages SET model_id = 'Gemini-3.5-Flash（High）' WHERE client = 'antigravity' AND model_id IN ('gemini-3-flash-a', 'gemini-3-flash-high')",
+        "CREATE TABLE IF NOT EXISTS openrouter_models (
+            model_id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            input_cost REAL,
+            output_cost REAL,
+            cache_read_cost REAL,
+            updated_at TEXT NOT NULL
+        )",
         [],
     )?;
+
+    // Exchange rate history — appended by 'calctokens upgrade'.
     conn.execute(
-        "UPDATE messages SET model_id = 'Gemini-3.5-Flash（Medium）' WHERE client = 'antigravity' AND model_id IN ('gemini-3-flash-preview', 'gemini-3-flash-c', 'model_placeholder_m47', 'gemini-3-flash')",
+        "CREATE TABLE IF NOT EXISTS exchange_rates (
+            date TEXT PRIMARY KEY,
+            rate REAL NOT NULL,
+            updated_at TEXT NOT NULL
+        )",
         [],
     )?;
-    conn.execute(
-        "UPDATE messages SET model_id = 'Gemini-3.1-Pro（High）' WHERE client = 'antigravity' AND model_id IN ('gemini-3-pro-high', 'gemini-3.1-pro-high', 'model_placeholder_m36')",
-        [],
+
+    Ok(())
+}
+
+/// One-time backfill: compute canonical_id for messages that don't have one.
+/// resolve_alias() maps raw/pretty display names to the canonical pricing key.
+fn backfill_canonical_ids(conn: &Connection) -> rusqlite::Result<()> {
+    let null_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM messages WHERE canonical_id IS NULL",
+        [], |row| row.get(0),
     )?;
-    conn.execute(
-        "UPDATE messages SET model_id = 'Gemini-3.1-Pro（Low）' WHERE client = 'antigravity' AND model_id IN ('gemini-3-pro-low', 'gemini-3.1-pro-low', 'gemini-3.1-pro', 'model_placeholder_m37')",
-        [],
-    )?;
-    conn.execute(
-        "UPDATE messages SET model_id = 'Claude-Sonnet-4.6（Thinking）' WHERE client = 'antigravity' AND model_id IN ('claude-sonnet-4-6-thinking', 'claude-sonnet-4.6-thinking', 'model_placeholder_m35', 'claude-sonnet-4-6', 'claude-sonnet-4.6')",
-        [],
-    )?;
-    conn.execute(
-        "UPDATE messages SET model_id = 'Claude-Opus-4.6（Thinking）' WHERE client = 'antigravity' AND model_id IN ('claude-opus-4-6-thinking', 'claude-opus-4.6-thinking', 'model_placeholder_m26', 'claude-opus-4-6', 'claude-opus-4.6')",
-        [],
-    )?;
-    conn.execute(
-        "UPDATE messages SET model_id = 'GPT-OSS-120B（Medium）' WHERE client = 'antigravity' AND model_id IN ('gpt-oss-120b-medium', 'model_openai_gpt_oss_120b_medium')",
-        [],
-    )?;
-    conn.execute(
-        "UPDATE messages SET model_id = 'Claude-Opus-4.7' WHERE client = 'antigravity' AND model_id IN ('claude-opus-4-7', 'claude-opus-4.7')",
-        [],
-    )?;
-    conn.execute(
-        "UPDATE messages SET model_id = 'DeepSeek-V4-Pro' WHERE client = 'antigravity' AND model_id IN ('deepseek-v4-pro', 'deepseek-v4.pro', 'DeepSeek-v4-Pro')",
-        [],
-    )?;
-    conn.execute(
-        "UPDATE messages SET model_id = 'DeepSeek-V4-Flash' WHERE client = 'antigravity' AND model_id IN ('deepseek-v4-flash')",
-        [],
-    )?;
-    conn.execute(
-        "UPDATE messages SET model_id = 'GPT-5.5' WHERE client = 'antigravity' AND model_id IN ('gpt-5.5', 'gpt-5-5')",
-        [],
-    )?;
-    conn.execute(
-        "UPDATE messages SET model_id = 'GPT-5.4' WHERE client = 'antigravity' AND model_id IN ('gpt-5.4', 'gpt-5-4')",
-        [],
-    )?;
-    conn.execute(
-        "UPDATE messages SET model_id = 'GPT-5.4-Mini' WHERE client = 'antigravity' AND model_id IN ('gpt-5.4-mini', 'gpt-5-4-mini')",
-        [],
-    )?;
-    conn.execute(
-        "UPDATE messages SET model_id = 'GPT-5.3-Codex' WHERE client = 'antigravity' AND model_id IN ('gpt-5.3-codex', 'gpt-5-3-codex')",
-        [],
-    )?;
-    conn.execute(
-        "UPDATE messages SET model_id = 'GPT-5.2' WHERE client = 'antigravity' AND model_id IN ('gpt-5.2', 'gpt-5-2')",
-        [],
-    )?;
-    conn.execute(
-        "UPDATE messages SET model_id = 'Claude-Sonnet-4.5' WHERE client = 'antigravity' AND model_id IN ('claude-sonnet-4-5', 'claude-sonnet-4.5', 'claude-sonnet-4-5-20250929', 'claude-sonnet-4-5-thinking')",
-        [],
-    )?;
-    conn.execute(
-        "UPDATE messages SET model_id = 'DeepSeek-V3' WHERE client = 'antigravity' AND model_id IN ('deepseek-v3', 'deepseek-v3-0324')",
-        [],
-    )?;
-    conn.execute(
-        "UPDATE messages SET model_id = 'DeepSeek-Chat' WHERE client = 'antigravity' AND model_id IN ('deepseek-chat')",
-        [],
-    )?;
-    conn.execute(
-        "UPDATE messages SET model_id = 'DeepSeek-Coder' WHERE client = 'antigravity' AND model_id IN ('deepseek-coder')",
-        [],
-    )?;
-    conn.execute(
-        "UPDATE messages SET model_id = 'GPT-4o' WHERE client = 'antigravity' AND model_id IN ('gpt-4o')",
-        [],
-    )?;
+    if null_count == 0 {
+        return Ok(());
+    }
+
+    let mut stmt = conn.prepare("SELECT id, model_id FROM messages WHERE canonical_id IS NULL")?;
+    let rows: Vec<(i64, String)> = stmt.query_map([], |row| {
+        Ok((row.get(0)?, row.get(1)?))
+    })?.filter_map(|r| r.ok()).collect();
+
+    let mut update = conn.prepare("UPDATE messages SET canonical_id = ?1 WHERE id = ?2")?;
+    for (id, model_id) in &rows {
+        let canonical = pricing::aliases::resolve_alias(model_id).unwrap_or(model_id);
+        update.execute(params![canonical, id])?;
+    }
 
     Ok(())
 }
@@ -313,25 +294,26 @@ fn sync_messages(conn: &Connection, rt: &Runtime, clients: Option<Vec<String>>) 
     {
         let mut stmt = tx.prepare(
             "INSERT OR IGNORE INTO messages
-             (client, model_id, provider_id, session_id,
+             (client, model_id, canonical_id, provider_id, session_id,
               workspace_key, workspace_label,
               timestamp, date,
               input_tokens, output_tokens, cache_read, cache_write, reasoning,
               cost, message_count, agent, is_turn_start, message_key)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
                      ?9, ?10, ?11, ?12, ?13,
-                     ?14, ?15, ?16, ?17, ?18)"
+                     ?14, ?15, ?16, ?17, ?18, ?19)"
         )?;
         for msg in &messages {
-            // Messages without a natural dedup_key get a synthetic one from
-            // their content fields so re-scans never duplicate a row.
             let key = msg.dedup_key.clone().unwrap_or_else(|| {
                 format!("{}:{}:{}:{}:{}:{}",
                     msg.client, msg.session_id, msg.timestamp,
                     msg.model_id, msg.tokens.input, msg.tokens.output)
             });
+            let canonical_id = pricing::aliases::resolve_alias(&msg.model_id)
+                .unwrap_or(&msg.model_id)
+                .to_string();
             stmt.execute(params![
-                msg.client, msg.model_id, msg.provider_id, msg.session_id,
+                msg.client, msg.model_id, canonical_id, msg.provider_id, msg.session_id,
                 msg.workspace_key, msg.workspace_label,
                 msg.timestamp, msg.date,
                 msg.tokens.input, msg.tokens.output, msg.tokens.cache_read, msg.tokens.cache_write, msg.tokens.reasoning,
@@ -345,21 +327,23 @@ fn sync_messages(conn: &Connection, rt: &Runtime, clients: Option<Vec<String>>) 
     Ok(())
 }
 
-/// Rebuild daily_summary from raw messages.
-/// Idempotent and fast (~50ms for 100K rows) — called after every sync.
+/// Rebuild daily_summary from raw messages, grouped by canonical_id.
+/// canonical_id is never NULL after backfill — COALESCE is defensive.
 fn refresh_daily_summary(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute("DELETE FROM daily_summary", [])?;
     conn.execute(
         "INSERT INTO daily_summary
-         (date, client, model_id, provider_id,
+         (date, client, canonical_id, provider_id,
           input_tokens, output_tokens, cache_read, cache_write, reasoning,
           cost, message_count, turn_count)
-         SELECT date, client, model_id, provider_id,
+         SELECT date, client,
+                COALESCE(canonical_id, model_id),
+                MAX(provider_id),
                 SUM(input_tokens), SUM(output_tokens),
                 SUM(cache_read), SUM(cache_write), SUM(reasoning),
                 SUM(cost), SUM(message_count), SUM(is_turn_start)
          FROM messages
-         GROUP BY date, client, model_id",
+         GROUP BY date, client, COALESCE(canonical_id, model_id)",
         [],
     )?;
     Ok(())
@@ -429,14 +413,14 @@ fn query_model_report(conn: &Connection, args: &Args) -> Result<ModelReport, Box
     let (where_clause, params) = build_where_clause(args);
 
     let sql = format!(
-        "SELECT client, model_id, MAX(provider_id),
+        "SELECT client, canonical_id, MAX(provider_id),
                 SUM(input_tokens), SUM(output_tokens),
                 SUM(cache_read), SUM(cache_write),
                 SUM(reasoning), SUM(message_count),
                 SUM(cost)
          FROM daily_summary
          WHERE {}
-         GROUP BY client, model_id
+         GROUP BY client, canonical_id
          ORDER BY SUM(cost) DESC", where_clause
     );
 
@@ -486,14 +470,14 @@ fn query_top_models(conn: &Connection, args: &Args, top_n: usize) -> Result<Vec<
     let (where_clause, params) = build_where_clause(args);
 
     let sql = format!(
-        "SELECT model_id, MAX(provider_id),
+        "SELECT canonical_id, MAX(provider_id),
                 SUM(input_tokens), SUM(output_tokens),
                 SUM(cache_read), SUM(cache_write),
                 SUM(reasoning), SUM(message_count),
                 SUM(cost)
          FROM daily_summary
          WHERE {}
-         GROUP BY model_id
+         GROUP BY canonical_id
          ORDER BY SUM(cost) DESC
          LIMIT {}", where_clause, top_n
     );
@@ -505,7 +489,7 @@ fn query_top_models(conn: &Connection, args: &Args, top_n: usize) -> Result<Vec<
     let mut entries = Vec::new();
     while let Some(row) = rows.next()? {
         entries.push(ModelUsage {
-            client: "".to_string(), // Empty as it's grouped by model across all clients
+            client: "".to_string(),
             model: row.get(0)?,
             provider: row.get(1)?,
             merged_clients: None,
@@ -520,7 +504,7 @@ fn query_top_models(conn: &Connection, args: &Args, top_n: usize) -> Result<Vec<
             cost: row.get(8)?,
         });
     }
-    
+
     Ok(entries)
 }
 
@@ -530,7 +514,7 @@ fn query_monthly_report(conn: &Connection, args: &Args) -> Result<MonthlyReport,
 
     let sql = format!(
         "SELECT substr(date, 1, 7) as month,
-                GROUP_CONCAT(DISTINCT model_id),
+                GROUP_CONCAT(DISTINCT canonical_id),
                 SUM(input_tokens), SUM(output_tokens),
                 SUM(cache_read), SUM(cache_write),
                 SUM(message_count), SUM(cost)
@@ -575,7 +559,7 @@ fn query_hourly_report(conn: &Connection, args: &Args) -> Result<HourlyReport, B
     let sql = [
         "SELECT strftime('%Y-%m-%d %H:00', datetime(timestamp/1000, 'unixepoch')) as hour,",
         "       GROUP_CONCAT(DISTINCT client),",
-        "       GROUP_CONCAT(DISTINCT model_id),",
+        "       GROUP_CONCAT(DISTINCT COALESCE(canonical_id, model_id)),",
         "       SUM(input_tokens), SUM(output_tokens),",
         "       SUM(cache_read), SUM(cache_write),",
         "       SUM(reasoning), SUM(message_count),",
@@ -920,19 +904,88 @@ fn print_clients_view() {
     print!("{}", table);
 }
 
+// ── upgrade command ──────────────────────────────────────────────────────
+
+fn do_upgrade(conn: &Connection, rt: &Runtime) -> Result<(), Box<dyn std::error::Error>> {
+    let today = Utc::now().format("%Y-%m-%d").to_string();
+    let now_iso = Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
+
+    // 1. Fetch and store exchange rate
+    println!("[upgrade] Fetching USD/CNY exchange rate...");
+    let rate: f64 = Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()?
+        .get(EXCH_API).send()?.json::<ExchangeResp>()?.rates.cny;
+    save_exchange_cache(conn, "CNY", rate)?;
+    conn.execute(
+        "INSERT OR REPLACE INTO exchange_rates (date, rate, updated_at) VALUES (?1, ?2, ?3)",
+        params![today, rate, now_iso],
+    )?;
+    println!("[upgrade] USD/CNY rate: {:.4}", rate);
+
+    // 2. Delete pricing cache files to force fresh fetch
+    let or_cache = calctokens_core::pricing::cache::get_cache_path("pricing-openrouter.json");
+    let ll_cache = calctokens_core::pricing::cache::get_cache_path("pricing-litellm.json");
+    std::fs::remove_file(&or_cache).ok();
+    std::fs::remove_file(&ll_cache).ok();
+
+    // 3. Fetch fresh OpenRouter model data
+    println!("[upgrade] Fetching OpenRouter model metadata...");
+    let models = rt.block_on(calctokens_core::pricing::openrouter::fetch_all_models());
+
+    // 4. Upsert into openrouter_models table
+    let mut inserted = 0usize;
+    let tx = conn.unchecked_transaction()?;
+    {
+        let mut stmt = tx.prepare(
+            "INSERT OR REPLACE INTO openrouter_models
+             (model_id, display_name, input_cost, output_cost, cache_read_cost, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
+        )?;
+        for (model_id, pricing) in &models {
+            // Derive a display name from the model ID (strip provider prefix)
+            let display_name = model_id.split('/').next_back().unwrap_or(model_id);
+            stmt.execute(params![
+                model_id,
+                display_name,
+                pricing.input_cost_per_token,
+                pricing.output_cost_per_token,
+                pricing.cache_read_input_token_cost,
+                now_iso,
+            ])?;
+            inserted += 1;
+        }
+    }
+    tx.commit()?;
+
+    // Refresh daily_summary with the new canonical data
+    refresh_daily_summary(conn)?;
+
+    println!("[upgrade] Stored {} models in openrouter_models", inserted);
+    println!("[upgrade] Done. Database is up to date.");
+    Ok(())
+}
+
 // ── main ────────────────────────────────────────────────────────────────
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+
+    let conn = Connection::open(db_path())?;
+    init_db(&conn)?;
+    let rt = Runtime::new()?;
+
+    // ── upgrade: sync OpenRouter metadata + exchange rate ──────────────
+    if args.upgrade {
+        return do_upgrade(&conn, &rt);
+    }
+
     let range_key = if args.today { "today" }
         else if args.month { "month" }
         else if args.all { "all" }
         else if args.monthly { "monthly" }
         else if args.hourly { "hourly" }
         else { "default" };
-
-    let conn = Connection::open(db_path())?;
-    init_db(&conn)?;
 
     let exchange: f64 = if let Some(cached) = get_cached_exchange(&conn, "CNY")? {
         cached
@@ -951,8 +1004,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::env::set_var("CALCTOKENS_PRICING_CACHE_ONLY", "0");
         save_exchange_cache(&conn, "PRICING", 1.0)?;
     }
-
-    let rt = Runtime::new()?;
 
     // ── pricing lookup (independent of other modes) ─────────────────
     if let Some(ref model_id) = args.pricing {
@@ -1096,7 +1147,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         #[derive(serde::Serialize)] #[serde(rename_all = "camelCase")]
         struct JR { currency: String, entries: Vec<JE>, total_input: i64, total_output: i64, total_cache_read: i64, total_cache_write: i64, total_cost: f64, processing_time_ms: u32 }
         let out = JR { currency: "CNY".into(),
-            entries: report.entries.iter().map(|e| JE { client: e.client.clone(), model: e.model.clone(), provider: e.provider.clone(),
+            entries: report.entries.iter().map(|e| JE { client: e.client.clone(), model: pricing::aliases::resolve_pretty_name(&e.model).unwrap_or(&e.model).to_string(), provider: e.provider.clone(),
                 input: e.input, output: e.output, cache_read: e.cache_read, cache_write: e.cache_write,
                 reasoning: e.reasoning, message_count: e.message_count, cost: e.cost * exchange }).collect(),
             total_input: report.total_input, total_output: report.total_output,

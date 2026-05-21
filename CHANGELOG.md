@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.8.5] - 2026-05-22
+
+### Added
+- **Canonical ID Layer**: `messages` table now has `canonical_id` column — raw `model_id` preserved as observation, `canonical_id` computed via `resolve_alias()` for stable aggregation. Historical data is never rewritten.
+- **`calctokens --upgrade`**: New subcommand to sync OpenRouter model metadata (237 models) and live exchange rates to local SQLite (`openrouter_models` + `exchange_rates` tables).
+- **OpenRouter Metadata Tables**: `openrouter_models` (model→pricing mapping) and `exchange_rates` (historical rate tracking) for persistent metadata.
+- **Kimi Model Pretty Names**: Added `kimi-k2.6`, `k2p5`, `k2-p5`, `kimi-latest` mappings.
+
+### Changed
+- **Database Schema**: `daily_summary` rebuilt — PK changed from `(date, client, model_id)` to `(date, client, canonical_id)`. Same-model variants (High/Low, Thinking/non-Thinking) now merge into one canonical group.
+- **Display Name**: `gemini-3.1-pro` now shows as "Gemini-3.1-Pro" (without "(Low)" suffix, since High/Low variants are merged).
+
+### Removed
+- **Pretty-Name UPDATE Migrations**: Removed 18 `UPDATE messages SET model_id = 'PrettyName'` statements from `init_db()` that overwrote historical observation data.
+
+### Fixed
+- **Gemini-3.1-Pro Display**: After canonical merge of High/Low variants, display name no longer misleadingly shows tier suffix.
+
 ## [0.8.4] - 2026-05-21
 
 ### Fixed

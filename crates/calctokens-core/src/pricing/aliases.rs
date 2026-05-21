@@ -99,6 +99,10 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     // Doubao models
     m.insert("doubao-seed-code", "doubao-seed-code");
 
+    // GLM models
+    m.insert("z-ai/glm-5.1", "z-ai/glm-5.1");
+    m.insert("glm-5.1", "z-ai/glm-5.1");
+
     // Gemini preview variants
     m.insert("gemini-3.1-pro-preview", "gemini-3.1-pro");
     m.insert("gemini-3-flash-preview", "gemini-3-flash-preview");
@@ -145,17 +149,17 @@ static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("model_placeholder_m37", "Gemini-3.1-Pro（Low）");
     m.insert("gemini-3.1-pro", "Gemini-3.1-Pro");
 
-    m.insert("claude-sonnet-4-6-thinking", "Claude-Sonnet-4.6（Thinking）");
-    m.insert("claude-sonnet-4.6-thinking", "Claude-Sonnet-4.6（Thinking）");
-    m.insert("model_placeholder_m35", "Claude-Sonnet-4.6（Thinking）");
-    m.insert("claude-sonnet-4-6", "Claude-Sonnet-4.6（Thinking）");
-    m.insert("claude-sonnet-4.6", "Claude-Sonnet-4.6（Thinking）");
+    m.insert("claude-sonnet-4-6-thinking", "Claude-Sonnet-4.6");
+    m.insert("claude-sonnet-4.6-thinking", "Claude-Sonnet-4.6");
+    m.insert("model_placeholder_m35", "Claude-Sonnet-4.6");
+    m.insert("claude-sonnet-4-6", "Claude-Sonnet-4.6");
+    m.insert("claude-sonnet-4.6", "Claude-Sonnet-4.6");
 
-    m.insert("claude-opus-4-6-thinking", "Claude-Opus-4.6（Thinking）");
-    m.insert("claude-opus-4.6-thinking", "Claude-Opus-4.6（Thinking）");
-    m.insert("model_placeholder_m26", "Claude-Opus-4.6（Thinking）");
-    m.insert("claude-opus-4-6", "Claude-Opus-4.6（Thinking）");
-    m.insert("claude-opus-4.6", "Claude-Opus-4.6（Thinking）");
+    m.insert("claude-opus-4-6-thinking", "Claude-Opus-4.6");
+    m.insert("claude-opus-4.6-thinking", "Claude-Opus-4.6");
+    m.insert("model_placeholder_m26", "Claude-Opus-4.6");
+    m.insert("claude-opus-4-6", "Claude-Opus-4.6");
+    m.insert("claude-opus-4.6", "Claude-Opus-4.6");
 
     m.insert("claude-opus-4-7", "Claude-Opus-4.7");
     m.insert("claude-opus-4.7", "Claude-Opus-4.7");
@@ -212,14 +216,18 @@ static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("kimi-k2-instruct-0905", "Kimi-K2.5");
 
     // MiniMax models
-    m.insert("minimax-m2.7-highspeed", "MiniMax-M2.7-HighSpeed");
+    m.insert("minimax-m2.7-highspeed", "MiniMax-M2.7-Highspeed");
     m.insert("minimax-m2.7", "MiniMax-M2.7");
-    m.insert("minimax-m2.5-highspeed", "MiniMax-M2.5-HighSpeed");
+    m.insert("minimax-m2.5-highspeed", "MiniMax-M2.5-Highspeed");
     m.insert("minimax-m2.5", "MiniMax-M2.5");
     m.insert("minimax-m2.5-free", "MiniMax-M2.5-Free");
 
     // Doubao models
     m.insert("doubao-seed-code", "Doubao-Seed-Code");
+
+    // GLM models
+    m.insert("z-ai/glm-5.1", "GLM-5.1");
+    m.insert("glm-5.1", "GLM-5.1");
 
     // Gemini preview variants
     m.insert("gemini-3.1-pro-preview", "Gemini-3.1-Pro");
@@ -244,7 +252,7 @@ mod tests {
     fn resolves_antigravity_placeholders() {
         assert_eq!(
             resolve_pretty_name("MODEL_PLACEHOLDER_M26"),
-            Some("Claude-Opus-4.6（Thinking）")
+            Some("Claude-Opus-4.6")
         );
         assert_eq!(
             resolve_pretty_name("model_placeholder_m37"),
@@ -260,7 +268,7 @@ mod tests {
         );
         assert_eq!(
             resolve_pretty_name("claude-opus-4.6-thinking"),
-            Some("Claude-Opus-4.6（Thinking）")
+            Some("Claude-Opus-4.6")
         );
         assert_eq!(
             resolve_pretty_name("claude-opus-4-7"),
@@ -300,7 +308,7 @@ mod tests {
         );
         assert_eq!(
             resolve_pretty_name("MiniMax-M2.7-highspeed"),
-            Some("MiniMax-M2.7-HighSpeed")
+            Some("MiniMax-M2.7-Highspeed")
         );
         assert_eq!(
             resolve_pretty_name("minimax-m2.5-free"),

@@ -7,8 +7,9 @@ members = [
 
 [package]
 name = "CalcTokens"
-version = "0.8.5"
+version = "0.8.6"
 edition = "2021"
+authors = ["Felix Lau"]
 
 [[bin]]
 name = "calctokens"

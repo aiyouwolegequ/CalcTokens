@@ -135,7 +135,7 @@ mod tests {
         let messages = parse_antigravity_file(path.path());
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].client, "antigravity");
-        assert_eq!(messages[0].model_id, "Claude-Sonnet-4.6（Thinking）");
+        assert_eq!(messages[0].model_id, "Claude-Sonnet-4.6");
         assert_eq!(messages[0].tokens.input, 12);
         assert_eq!(messages[0].tokens.reasoning, 1);
         assert_eq!(messages[0].dedup_key.as_deref(), Some("resp-1"));
@@ -151,7 +151,7 @@ mod tests {
 
         let messages = parse_antigravity_file(path.path());
         assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].model_id, "Claude-Opus-4.6（Thinking）");
+        assert_eq!(messages[0].model_id, "Claude-Opus-4.6");
         assert_eq!(messages[0].provider_id, "anthropic");
     }
 }

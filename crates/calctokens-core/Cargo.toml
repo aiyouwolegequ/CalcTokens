@@ -1,8 +1,8 @@
 [package]
 name = "calctokens-core"
-version = "0.8.5"
+version = "0.8.6"
 edition = "2021"
-authors = ["Junho Yeo <hello@junho.io>"]
+authors = ["Felix Lau"]
 license = "MIT"
 description = "Core library for calctokens - session parsing, scanning, aggregation, pricing"
 

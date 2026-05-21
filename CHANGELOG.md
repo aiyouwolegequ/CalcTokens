@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.6] - 2026-05-22
+
+### Changed
+- **Display Names**: Claude-Sonnet-4.6 and Claude-Opus-4.6 no longer show "(Thinking)" suffix (all variants merged into one canonical group).
+- **MiniMax Casing**: HighSpeed → Highspeed (lowercase 's') for both M2.7 and M2.5 models.
+- **GLM-5.1**: `z-ai/glm-5.1` now displays as `GLM-5.1`.
+- **Authors**: Updated to Felix Lau.
+
 ## [0.8.5] - 2026-05-22
 
 ### Added

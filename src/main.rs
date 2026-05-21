@@ -149,14 +149,12 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
     // Uses resolve_alias() to map raw/pretty model_ids to a stable canonical form.
     backfill_canonical_ids(conn)?;
 
-    // v0.8.8: Fix Gemini Flash canonical split — Antigravity models use gemini-3.5-flash,
-    // not gemini-3-flash-preview. Re-backfill Antigravity messages that were mis-canonicalized.
+    // v0.8.8: Fix Gemini Flash canonical split — all Antigravity Gemini Flash
+    // messages use gemini-3.5-flash (distinct from Gemini CLI's gemini-3-flash-preview).
     conn.execute(
         "UPDATE messages SET canonical_id = 'gemini-3.5-flash'
          WHERE client = 'antigravity'
-         AND canonical_id = 'gemini-3-flash-preview'
-         AND model_id IN ('gemini-3-flash-a', 'gemini-3-flash-high', 'gemini-3-flash',
-                          'gemini-3-flash-c', 'model_placeholder_m47')",
+         AND canonical_id = 'gemini-3-flash-preview'",
         [],
     )?;
 

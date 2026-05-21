@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.2] - 2026-05-21
+
+### Fixed
+- **Model Display Names**: Model column in DETAIL table no longer wraps to next line; removed fixed-width column constraint.
+- **Pretty Name Resolution at Display Time**: All model names are now resolved to their pretty display names at render time, ensuring consistent naming across all clients (Claude Code, OpenCode, Gemini CLI, Codex, Kimi CLI), not just Antigravity.
+
+### Added
+- **Comprehensive Model Mappings**: Added pretty name mappings for DeepSeek-V4-Flash, Claude-Sonnet-4.5, GPT-5.4-Mini, GPT-5.3-Codex, Kimi-K2.5, MiniMax-M2.7/M2.5, Doubao-Seed-Code, and Gemini preview variants.
+- **Database Migrations**: Added migrations for new model pretty names and fixed DeepSeek-V4-Pro capitalization.
+
 ## [0.8.1] - 2026-05-21
 
 ### Added

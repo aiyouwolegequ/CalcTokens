@@ -191,7 +191,11 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         [],
     )?;
     conn.execute(
-        "UPDATE messages SET model_id = 'DeepSeek-v4-Pro' WHERE client = 'antigravity' AND model_id IN ('deepseek-v4-pro', 'deepseek-v4.pro')",
+        "UPDATE messages SET model_id = 'DeepSeek-V4-Pro' WHERE client = 'antigravity' AND model_id IN ('deepseek-v4-pro', 'deepseek-v4.pro', 'DeepSeek-v4-Pro')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE messages SET model_id = 'DeepSeek-V4-Flash' WHERE client = 'antigravity' AND model_id IN ('deepseek-v4-flash')",
         [],
     )?;
     conn.execute(
@@ -199,7 +203,23 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         [],
     )?;
     conn.execute(
+        "UPDATE messages SET model_id = 'GPT-5.4' WHERE client = 'antigravity' AND model_id IN ('gpt-5.4', 'gpt-5-4')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE messages SET model_id = 'GPT-5.4-Mini' WHERE client = 'antigravity' AND model_id IN ('gpt-5.4-mini', 'gpt-5-4-mini')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE messages SET model_id = 'GPT-5.3-Codex' WHERE client = 'antigravity' AND model_id IN ('gpt-5.3-codex', 'gpt-5-3-codex')",
+        [],
+    )?;
+    conn.execute(
         "UPDATE messages SET model_id = 'GPT-5.2' WHERE client = 'antigravity' AND model_id IN ('gpt-5.2', 'gpt-5-2')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE messages SET model_id = 'Claude-Sonnet-4.5' WHERE client = 'antigravity' AND model_id IN ('claude-sonnet-4-5', 'claude-sonnet-4.5', 'claude-sonnet-4-5-20250929', 'claude-sonnet-4-5-thinking')",
         [],
     )?;
     conn.execute(
@@ -737,22 +757,27 @@ fn print_models_view(report: &ModelReport, top_models: &[ModelUsage], exchange: 
         if inp == 0.0 && out == 0.0 && cw == 0.0 && cr == 0.0 { continue; }
         let total = inp + out + cw + cr;
         let share_str = share_pct(total, total_tokens);
+        let display_model = pricing::aliases::resolve_pretty_name(&entry.model)
+            .unwrap_or(&entry.model)
+            .to_string();
         detail_builder.push_record([
-            &entry.client, &entry.model, &format!("¥{:.2}", entry.cost * exchange),
+            &entry.client, &display_model, &format!("¥{:.2}", entry.cost * exchange),
             &fmt_num(inp), &fmt_num(out), &fmt_num(cw),
             &fmt_num(cr), &fmt_num(total), &share_str,
         ]);
     }
     let mut detail_table = detail_builder.build();
-    detail_table.with(Style::rounded()).with(Padding::new(0, 1, 0, 0))
-        .with(Modify::new(Segment::new(.., 1..2)).with(Width::wrap(25)));
+    detail_table.with(Style::rounded()).with(Padding::new(0, 1, 0, 0));
 
     let mut top_builder = Builder::new();
     top_builder.push_record(["#", "Model", "Total", "CNY", "Share"]);
     for (i, entry) in top_models.iter().filter(|e| e.cost > 0.0).enumerate() {
         let total = (entry.input + entry.output + entry.cache_write + entry.cache_read) as f64;
+        let display_model = pricing::aliases::resolve_pretty_name(&entry.model)
+            .unwrap_or(&entry.model)
+            .to_string();
         top_builder.push_record([
-            &format!("{}", i + 1), &entry.model, &fmt_num(total),
+            &format!("{}", i + 1), &display_model, &fmt_num(total),
             &format!("¥{:.2}", entry.cost * exchange), &share_pct(entry.cost, total_cost),
         ]);
     }

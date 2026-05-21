@@ -47,16 +47,29 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("claude-haiku-4-6", "claude-haiku-4-6");
     m.insert("claude-haiku-4.6", "claude-haiku-4-6");
 
-    // DeepSeek and GPT models
+    // DeepSeek models
     m.insert("deepseek-v4-pro", "deepseek-v4-pro");
+    m.insert("deepseek-v4-flash", "deepseek-v4-flash");
     m.insert("deepseek-v3", "deepseek-v3");
     m.insert("deepseek-v3-0324", "deepseek-v3-0324");
     m.insert("deepseek-chat", "deepseek-chat");
     m.insert("deepseek-coder", "deepseek-coder");
 
+    // Claude Sonnet 4.5 variants
+    m.insert("claude-sonnet-4-5", "claude-sonnet-4-5");
+    m.insert("claude-sonnet-4.5", "claude-sonnet-4-5");
+    m.insert("claude-sonnet-4-5-20250929", "claude-sonnet-4-5");
+    m.insert("claude-sonnet-4-5-thinking", "claude-sonnet-4-5");
+    m.insert("claude-sonnet-4.5-thinking", "claude-sonnet-4-5");
+
+    // GPT models
     m.insert("gpt-5.5", "gpt-5.5");
     m.insert("gpt-5-5", "gpt-5.5");
     m.insert("gpt-5.4", "gpt-5.4");
+    m.insert("gpt-5.4-mini", "gpt-5.4-mini");
+    m.insert("gpt-5-4-mini", "gpt-5.4-mini");
+    m.insert("gpt-5.3-codex", "gpt-5.3-codex");
+    m.insert("gpt-5-3-codex", "gpt-5.3-codex");
     m.insert("gpt-5.2", "gpt-5.2");
     m.insert("gpt-5-2", "gpt-5.2");
     m.insert("gpt-5.1", "gpt-5.1");
@@ -66,11 +79,29 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("gpt-5.1-codex-max", "gpt-5.1-codex-max");
     m.insert("gpt-5-nano", "gpt-5-nano");
     m.insert("gpt-5", "gpt-5");
-
     m.insert("gpt-4o", "gpt-4o");
     m.insert("gpt-4o-mini", "gpt-4o-mini");
     m.insert("gpt-4-turbo", "gpt-4-turbo");
     m.insert("gpt-4", "gpt-4");
+
+    // Kimi models
+    m.insert("kimi-for-coding", "kimi-k2.5");
+    m.insert("kimi-k2.5", "kimi-k2.5");
+    m.insert("kimi-k2-thinking", "kimi-k2-thinking");
+
+    // MiniMax models
+    m.insert("minimax-m2.7-highspeed", "minimax-m2.7-highspeed");
+    m.insert("minimax-m2.7", "minimax-m2.7");
+    m.insert("minimax-m2.5-highspeed", "minimax-m2.5-highspeed");
+    m.insert("minimax-m2.5", "minimax-m2.5");
+    m.insert("minimax-m2.5-free", "minimax-m2.5-free");
+
+    // Doubao models
+    m.insert("doubao-seed-code", "doubao-seed-code");
+
+    // Gemini preview variants
+    m.insert("gemini-3.1-pro-preview", "gemini-3.1-pro");
+    m.insert("gemini-3-flash-preview", "gemini-3-flash-preview");
 
     // Map pretty display names back to canonical pricing models (full-width brackets)
     m.insert("gemini-3.5-flash（high）", "gemini-3-flash-preview");
@@ -132,16 +163,29 @@ static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("gpt-oss-120b-medium", "GPT-OSS-120B（Medium）");
     m.insert("model_openai_gpt_oss_120b_medium", "GPT-OSS-120B（Medium）");
 
-    // DeepSeek and GPT models pretty display names
-    m.insert("deepseek-v4-pro", "DeepSeek-v4-Pro");
+    // DeepSeek models
+    m.insert("deepseek-v4-pro", "DeepSeek-V4-Pro");
+    m.insert("deepseek-v4-flash", "DeepSeek-V4-Flash");
     m.insert("deepseek-v3", "DeepSeek-V3");
     m.insert("deepseek-v3-0324", "DeepSeek-V3-0324");
     m.insert("deepseek-chat", "DeepSeek-Chat");
     m.insert("deepseek-coder", "DeepSeek-Coder");
 
+    // Claude Sonnet 4.5
+    m.insert("claude-sonnet-4-5", "Claude-Sonnet-4.5");
+    m.insert("claude-sonnet-4.5", "Claude-Sonnet-4.5");
+    m.insert("claude-sonnet-4-5-20250929", "Claude-Sonnet-4.5");
+    m.insert("claude-sonnet-4-5-thinking", "Claude-Sonnet-4.5");
+    m.insert("claude-sonnet-4.5-thinking", "Claude-Sonnet-4.5");
+
+    // GPT models
     m.insert("gpt-5.5", "GPT-5.5");
     m.insert("gpt-5-5", "GPT-5.5");
     m.insert("gpt-5.4", "GPT-5.4");
+    m.insert("gpt-5.4-mini", "GPT-5.4-Mini");
+    m.insert("gpt-5-4-mini", "GPT-5.4-Mini");
+    m.insert("gpt-5.3-codex", "GPT-5.3-Codex");
+    m.insert("gpt-5-3-codex", "GPT-5.3-Codex");
     m.insert("gpt-5.2", "GPT-5.2");
     m.insert("gpt-5-2", "GPT-5.2");
     m.insert("gpt-5.1", "GPT-5.1");
@@ -151,11 +195,31 @@ static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("gpt-5.1-codex-max", "GPT-5.1-Codex-Max");
     m.insert("gpt-5-nano", "GPT-5-Nano");
     m.insert("gpt-5", "GPT-5");
-
     m.insert("gpt-4o", "GPT-4o");
     m.insert("gpt-4o-mini", "GPT-4o-Mini");
     m.insert("gpt-4-turbo", "GPT-4-Turbo");
     m.insert("gpt-4", "GPT-4");
+
+    // Kimi models
+    m.insert("kimi-for-coding", "Kimi-K2.5");
+    m.insert("kimi-k2.5", "Kimi-K2.5");
+    m.insert("kimi-k2-thinking", "Kimi-K2-Thinking");
+    m.insert("kimi-k2.5-nvfp4", "Kimi-K2.5");
+    m.insert("kimi-k2-instruct-0905", "Kimi-K2.5");
+
+    // MiniMax models
+    m.insert("minimax-m2.7-highspeed", "MiniMax-M2.7-HighSpeed");
+    m.insert("minimax-m2.7", "MiniMax-M2.7");
+    m.insert("minimax-m2.5-highspeed", "MiniMax-M2.5-HighSpeed");
+    m.insert("minimax-m2.5", "MiniMax-M2.5");
+    m.insert("minimax-m2.5-free", "MiniMax-M2.5-Free");
+
+    // Doubao models
+    m.insert("doubao-seed-code", "Doubao-Seed-Code");
+
+    // Gemini preview variants
+    m.insert("gemini-3.1-pro-preview", "Gemini-3.1-Pro");
+    m.insert("gemini-3-flash-preview", "Gemini-3.5-Flash");
 
     m
 });
@@ -204,11 +268,47 @@ mod tests {
         );
         assert_eq!(
             resolve_pretty_name("deepseek-v4-pro"),
-            Some("DeepSeek-v4-Pro")
+            Some("DeepSeek-V4-Pro")
         );
         assert_eq!(
             resolve_pretty_name("gpt-5.5"),
             Some("GPT-5.5")
+        );
+        assert_eq!(
+            resolve_pretty_name("claude-sonnet-4-5-20250929"),
+            Some("Claude-Sonnet-4.5")
+        );
+        assert_eq!(
+            resolve_pretty_name("gpt-5.4-mini"),
+            Some("GPT-5.4-Mini")
+        );
+        assert_eq!(
+            resolve_pretty_name("gpt-5.3-codex"),
+            Some("GPT-5.3-Codex")
+        );
+        assert_eq!(
+            resolve_pretty_name("deepseek-v4-flash"),
+            Some("DeepSeek-V4-Flash")
+        );
+        assert_eq!(
+            resolve_pretty_name("kimi-for-coding"),
+            Some("Kimi-K2.5")
+        );
+        assert_eq!(
+            resolve_pretty_name("MiniMax-M2.7-highspeed"),
+            Some("MiniMax-M2.7-HighSpeed")
+        );
+        assert_eq!(
+            resolve_pretty_name("minimax-m2.5-free"),
+            Some("MiniMax-M2.5-Free")
+        );
+        assert_eq!(
+            resolve_pretty_name("doubao-seed-code"),
+            Some("Doubao-Seed-Code")
+        );
+        assert_eq!(
+            resolve_pretty_name("gemini-3.1-pro-preview"),
+            Some("Gemini-3.1-Pro")
         );
     }
 

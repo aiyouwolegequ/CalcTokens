@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.8.0] - 2026-05-21
+
+### Added
+- **Native Library Migration**: Replaced the external `tokscale-core` library dependency entirely with the native local crate `calctokens-core` in the workspace, fully aligning environment overrides to `CALCTOKENS_*` (e.g. `CALCTOKENS_CONFIG_DIR`) and config/caching to `~/.config/calctokens`.
+- **Native Antigravity Sync Hook**: Built native process and port scanner support in `calctokens` to sync active Antigravity workspace DB session states natively, removing python dependencies and manual trigger requirements.
+
+### Optimized
+- **Database Performance**: Added substring-based `LIKE` pre-filtering constraints to SQLite queries in `opencode` and `kilo` session parsers, avoiding expensive JSON parsing calls on millions of non-target rows and resolving CPU spikes.
+
 ## [0.7.3] - 2026-05-14
 
 ### Optimized

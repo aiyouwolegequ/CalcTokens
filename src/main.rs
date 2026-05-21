@@ -6,12 +6,14 @@ use serde::Deserialize;
 use tabled::builder::Builder;
 use tabled::settings::{object::Segment, Padding, Style, Modify, Width};
 use tokio::runtime::Runtime;
-use tokscale_core::{
+use calctokens_core::{
     ClientId, LocalParseOptions,
     ModelReport, MonthlyReport, HourlyReport,
     ModelUsage, MonthlyUsage, HourlyUsage,
     pricing,
 };
+
+mod antigravity;
 
 const EXCH_API: &str = "https://api.exchangerate-api.com/v4/latest/USD";
 fn db_path() -> String {
@@ -206,18 +208,23 @@ fn save_record(conn: &Connection, range: &str, total_in: i64, total_out: i64,
 // Parse all client log files, store every message in SQLite.
 // Dedup by message_key so repeated runs only add new messages.
 
-fn sync_messages(conn: &Connection, rt: &Runtime) -> Result<(), Box<dyn std::error::Error>> {
+fn sync_messages(conn: &Connection, rt: &Runtime, clients: Option<Vec<String>>) -> Result<(), Box<dyn std::error::Error>> {
+    // ── Antigravity auto sync hook ──
+    if let Err(e) = antigravity::sync_antigravity() {
+        eprintln!("Warning: Antigravity sync failed: {}", e);
+    }
+
     let opts = LocalParseOptions {
         home_dir: None,
         use_env_roots: true,
-        clients: None,
+        clients,
         since: None,
         until: None,
         year: None,
         scanner_settings: Default::default(),
     };
 
-    let messages = rt.block_on(tokscale_core::parse_local_unified_messages(opts))?;
+    let messages = rt.block_on(calctokens_core::parse_local_unified_messages(opts))?;
 
     let tx = conn.unchecked_transaction()?;
     {
@@ -568,7 +575,7 @@ fn get_stats_for_range(conn: &Connection, since: Option<String>, until: Option<S
     }
 }
 
-// ── tokscale-core helpers ───────────────────────────────────────────────
+// ── calctokens-core helpers ───────────────────────────────────────────────
 
 fn fetch_pricing_lookup(rt: &Runtime, model_id: &str) -> Result<Option<pricing::lookup::LookupResult>, Box<dyn std::error::Error>> {
     let svc = rt.block_on(pricing::PricingService::get_or_init())
@@ -807,7 +814,7 @@ fn print_pricing_view(model_id: &str, result: &pricing::lookup::LookupResult, ex
 }
 
 fn print_clients_view() {
-    let home_dir = tokscale_core::get_home_dir_string(&None).unwrap_or_default();
+    let home_dir = calctokens_core::get_home_dir_string(&None).unwrap_or_default();
     let mut builder = Builder::new();
     builder.push_record(["Client", "Path", "Exists"]);
     for client_id in ClientId::ALL.iter() {
@@ -851,9 +858,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     if get_cached_exchange(&conn, "PRICING")?.is_some() {
-        std::env::set_var("TOKSCALE_PRICING_CACHE_ONLY", "1");
+        std::env::set_var("CALCTOKENS_PRICING_CACHE_ONLY", "1");
     } else {
-        std::env::set_var("TOKSCALE_PRICING_CACHE_ONLY", "0");
+        std::env::set_var("CALCTOKENS_PRICING_CACHE_ONLY", "0");
         save_exchange_cache(&conn, "PRICING", 1.0)?;
     }
 
@@ -887,7 +894,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── clients view ────────────────────────────────────────────────
     if args.clients {
         if args.json_output {
-            let home_dir = tokscale_core::get_home_dir_string(&None).unwrap_or_default();
+            let home_dir = calctokens_core::get_home_dir_string(&None).unwrap_or_default();
             let mut entries = Vec::new();
             for cid in ClientId::ALL.iter() {
                 let def = cid.data();
@@ -903,7 +910,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // ── Sync messages from log files into SQLite ────────────────────
-    if let Err(e) = sync_messages(&conn, &rt) {
+    let sync_clients = if args.client.is_empty() {
+        None
+    } else {
+        Some(args.client.clone())
+    };
+    if let Err(e) = sync_messages(&conn, &rt, sync_clients) {
         eprintln!("Warning: message sync failed (data may be stale): {}", e);
     }
     if let Err(e) = refresh_daily_summary(&conn) {

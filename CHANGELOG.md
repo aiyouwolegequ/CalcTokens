@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.8.4] - 2026-05-21
+
+### Fixed
+- **Silent Antigravity Sync**: Removed all diagnostic output from the Antigravity session synchronizer. Sync runs silently in the background and no longer pollutes stdout (which was breaking `--json-output` parsing in multi-machine aggregation scripts).
+
 ## [0.8.3] - 2026-05-21
 
 ### Added

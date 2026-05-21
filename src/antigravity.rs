@@ -401,10 +401,7 @@ fn process_trajectory(
 }
 
 pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Starting Antigravity (agy) session synchronizer...");
-    
     let candidates = get_active_processes();
-    println!("Found {} process candidates.", candidates.len());
     
     let client = Client::builder()
         .danger_accept_invalid_certs(true)
@@ -422,8 +419,6 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
         for port in ports {
             if let Some((protocol, headers)) = probe_heartbeat(&client, port, &csrf_token) {
                 let fingerprint = format!("pid:{}:port:{}", pid, port);
-                println!("Successfully connected to Agy at {}://127.0.0.1:{} (PID: {})", protocol, port, pid);
-                
                 connections.push(ConnectionEntry {
                     fingerprint: fingerprint.clone(),
                     pid,
@@ -436,7 +431,6 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
     }
     
     if active_endpoints.is_empty() {
-        println!("No active Antigravity (agy) instances detected. Exiting sync.");
         return Ok(());
     }
     
@@ -480,8 +474,6 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
             None => continue,
         };
         
-        println!("Retrieved {} trajectories from port {}.", trajectories.len(), port);
-        
         for (session_id, summary) in trajectories {
             let last_modified_ms = parse_timestamp(summary.get("lastModifiedTime"));
             let step_count = summary.get("stepCount").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -496,7 +488,6 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             
-            println!("Syncing session: {} ...", session_id);
             if let Some((artifact_path, artifact_hash)) = process_trajectory(
                 &client,
                 session_id,
@@ -542,8 +533,6 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
             let _ = f.write_all(json_str.as_bytes());
         }
     }
-    
-    println!("Sync complete. Registered {} connections and {} sessions.", manifest.connections.len(), manifest.sessions.len());
     
     Ok(())
 }

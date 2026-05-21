@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.8.8] - 2026-05-22
+
+### Fixed
+- **Gemini Flash canonical split**: Antigravity models (`gemini-3-flash-a/high/flash/flash-c/m47`) now canonicalize to `gemini-3.5-flash` → display "Gemini-3.5-Flash". Gemini CLI (`gemini-3-flash-preview`) stays on `gemini-3-flash-preview` → display "Gemini-3.1-Flash". Verified against OpenRouter: `google/gemini-3-flash-preview` and `google/gemini-3.5-flash` are distinct models.
+- **DB migration**: Re-backfills Antigravity messages previously mis-canonicalized.
+
 ## [0.8.7] - 2026-05-22
 
 ### Fixed

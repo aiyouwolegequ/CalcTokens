@@ -11,11 +11,15 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("kimi-k2.5-thinking", "kimi-k2-thinking");
     m.insert("kimi-for-coding", "kimi-k2.5");
 
-    m.insert("gemini-3-flash-a", "gemini-3-flash-preview");
+    // Gemini 3.1 Flash (Gemini CLI)
     m.insert("gemini-3-flash-preview", "gemini-3-flash-preview");
-    m.insert("gemini-3-flash", "gemini-3-flash-preview");
-    m.insert("gemini-3-flash-c", "gemini-3-flash-preview");
-    m.insert("model_placeholder_m47", "gemini-3-flash-preview");
+
+    // Gemini 3.5 Flash (Antigravity)
+    m.insert("gemini-3-flash-a", "gemini-3.5-flash");
+    m.insert("gemini-3-flash-high", "gemini-3.5-flash");
+    m.insert("gemini-3-flash", "gemini-3.5-flash");
+    m.insert("gemini-3-flash-c", "gemini-3.5-flash");
+    m.insert("model_placeholder_m47", "gemini-3.5-flash");
 
     m.insert("gemini-3.1-pro-high", "gemini-3.1-pro");
     m.insert("gemini-3-pro-high", "gemini-3-pro");
@@ -108,8 +112,8 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("gemini-3-flash-preview", "gemini-3-flash-preview");
 
     // Map pretty display names back to canonical pricing models (full-width brackets)
-    m.insert("gemini-3.5-flash（high）", "gemini-3-flash-preview");
-    m.insert("gemini-3.5-flash（medium）", "gemini-3-flash-preview");
+    m.insert("gemini-3.5-flash（high）", "gemini-3.5-flash");
+    m.insert("gemini-3.5-flash（medium）", "gemini-3.5-flash");
     m.insert("gemini-3.1-pro（high）", "gemini-3.1-pro");
     m.insert("gemini-3.1-pro（low）", "gemini-3.1-pro");
     m.insert("claude-sonnet-4.6（thinking）", "claude-sonnet-4-6");
@@ -118,8 +122,8 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("gpt-oss-120b（medium）", "gpt-oss-120b-medium");
 
     // Map pretty display names back to canonical pricing models (half-width brackets)
-    m.insert("gemini-3.5-flash(high)", "gemini-3-flash-preview");
-    m.insert("gemini-3.5-flash(medium)", "gemini-3-flash-preview");
+    m.insert("gemini-3.5-flash(high)", "gemini-3.5-flash");
+    m.insert("gemini-3.5-flash(medium)", "gemini-3.5-flash");
     m.insert("gemini-3.1-pro(high)", "gemini-3.1-pro");
     m.insert("gemini-3.1-pro(low)", "gemini-3.1-pro");
     m.insert("claude-sonnet-4.6(thinking)", "claude-sonnet-4-6");
@@ -134,11 +138,11 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
 
 static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     let mut m = HashMap::new();
-    m.insert("gemini-3-flash-a", "Gemini-3.1-Flash");
     m.insert("gemini-3-flash-preview", "Gemini-3.1-Flash");
-    m.insert("gemini-3-flash", "Gemini-3.1-Flash");
-    m.insert("gemini-3-flash-c", "Gemini-3.1-Flash");
-    m.insert("model_placeholder_m47", "Gemini-3.1-Flash");
+    m.insert("gemini-3-flash-a", "Gemini-3.5-Flash");
+    m.insert("gemini-3-flash", "Gemini-3.5-Flash");
+    m.insert("gemini-3-flash-c", "Gemini-3.5-Flash");
+    m.insert("model_placeholder_m47", "Gemini-3.5-Flash");
 
     m.insert("gemini-3.1-pro-high", "Gemini-3.1-Pro（High）");
     m.insert("gemini-3-pro-high", "Gemini-3.1-Pro（High）");
@@ -232,6 +236,7 @@ static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     // Gemini preview variants
     m.insert("gemini-3.1-pro-preview", "Gemini-3.1-Pro");
     m.insert("gemini-3-flash-preview", "Gemini-3.1-Flash");
+    m.insert("gemini-3.5-flash", "Gemini-3.5-Flash");
 
     m
 });
@@ -264,7 +269,7 @@ mod tests {
         );
         assert_eq!(
             resolve_pretty_name("gemini-3-flash-c"),
-            Some("Gemini-3.1-Flash")
+            Some("Gemini-3.5-Flash")
         );
         assert_eq!(
             resolve_pretty_name("claude-opus-4.6-thinking"),
@@ -328,7 +333,7 @@ mod tests {
     fn resolves_aliases_to_canonical() {
         assert_eq!(
             resolve_alias("gemini-3-flash"),
-            Some("gemini-3-flash-preview")
+            Some("gemini-3.5-flash")
         );
         assert_eq!(
             resolve_alias("Claude-Opus-4.6（Thinking）"),

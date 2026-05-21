@@ -1,28 +1,27 @@
 # calctokens
 
-Token usage report powered by [tokscale-core](https://github.com/junhoyeo/tokscale) with human-readable K/M/B units & RMB conversion.
-
-Data is persisted in SQLite and survives client log file deletions — delete `~/.claude/` or any other client logs without losing history.
+AI coding assistant token usage tracker with human-readable K/M/B/T units & real-time CNY conversion. Data persisted in SQLite — survives client log deletions.
 
 ## Features
 
-- Token usage by client and model
+- **OpenRouter-standard model naming**: models canonicalized and displayed with unified pretty names
+- **`calctokens --upgrade`**: sync OpenRouter model metadata + exchange rates to local DB
+- **Canonical ID layer**: raw `model_id` preserved for audit, `canonical_id` used for aggregation — historical data never rewritten
 - All messages stored permanently in `~/.calctokens.db` — independent of source log files
-- Pre-aggregated `daily_summary` for fast model/monthly reports (99.8% row reduction)
+- Pre-aggregated `daily_summary` for fast model/monthly reports
 - K/M/B/T number formatting
-- Live USD → CNY exchange rate
+- Live USD → CNY exchange rate with daily caching + history tracking
 - Cache Write / Cache Read token breakdown
-- Share percentage in detail (tokens) and TOP X (cost)
-- SQLite storage with intelligent delta comparison (last check, yesterday, or last month)
-- High-concurrency optimized database access (WAL mode & busy timeout)
-- Daily caching for exchange rate and API results
+- Share percentages (tokens in detail, cost in TOP X)
+- Intelligent delta comparison (last check, yesterday, or last month)
 - Monthly & Hourly trend reports
 - Client filtering (`-c/--client`)
 - Pricing lookup with CNY conversion (`--pricing`)
 - Clients overview (`--clients`)
 - Time filtering: `--since`, `--until`, `--year`
 - `--json-output` flag for all report types
-- Supports multi-machine aggregation via `totaltokens` script
+- Multi-machine aggregation via `totaltokens` script
+- Multi-client support: Claude Code, OpenCode, Codex, Gemini CLI, Kimi CLI, Antigravity, etc.
 
 ## Install
 
@@ -62,11 +61,12 @@ calctokens --hourly            # hourly usage history
 calctokens --pricing MODEL_ID  # model pricing lookup (CNY)
 calctokens --clients           # all detected clients
 calctokens --version           # print version
+calctokens --upgrade           # sync OpenRouter metadata + exchange rates
 calctokens -c claude           # filter by client
 calctokens -c kimi --month     # filter by client + time range
 calctokens --since 2026-01-01  # filter by start date
-calctokens --year 2026          # filter by year
-calctokens --json-output        # output JSON for scripts
+calctokens --year 2026         # filter by year
+calctokens --json-output       # output JSON for scripts
 ```
 
 **Reporting Logic:**
@@ -74,8 +74,6 @@ calctokens --json-output        # output JSON for scripts
 - **`--today`:** Shows **Today** vs **Yesterday**, TOP 3 COST.
 - **`--month`:** Shows **This Month** vs **Last Month**, TOP 5 COST.
 - **`--all`:** Shows **All-time**, TOP 10 COST.
-
-**Supported clients:** `opencode`, `claude`, `codex`, `gemini`, `openclaw`, `kimi`, `hermes`, `antigravity`, etc.
 
 ## Output
 
@@ -97,32 +95,64 @@ calctokens --json-output        # output JSON for scripts
 ╰──────────────┴─────────┴──────────┴───────────┴───────────┴─────────┴─────────╯
 
   DETAIL
-╭───────┬───────────────────────┬────────┬───────┬─────────┬─────────┬───────┬───────┬───────╮
-│Client │Model                  │CNY     │Input  │Output   │Cache W  │Cache R│Total  │Share  │
-├───────┼───────────────────────┼────────┼───────┼─────────┼─────────┼───────┼───────┼───────┤
-│claude │minimax-m2.7-highspeed │¥10.00  │4.14M  │19.69K   │301.65K  │2.03M  │6.49M  │57.9%  │
-│claude │minimax-m2.7           │¥2.03   │444.90K│14.58K   │0        │4.26M  │4.72M  │42.1%  │
-╰───────┴───────────────────────┴────────┴───────┴─────────┴─────────┴───────┴───────┴───────╯
+╭───────┬────────────────────────┬────────┬───────┬─────────┬─────────┬───────┬───────┬───────╮
+│Client │Model                   │CNY     │Input  │Output   │Cache W  │Cache R│Total  │Share  │
+├───────┼────────────────────────┼────────┼───────┼─────────┼─────────┼───────┼───────┼───────┤
+│claude │MiniMax-M2.7-HighSpeed  │¥10.00  │4.14M  │19.69K   │301.65K  │2.03M  │6.49M  │57.9%  │
+│claude │MiniMax-M2.7            │¥2.03   │444.90K│14.58K   │0        │4.26M  │4.72M  │42.1%  │
+╰───────┴────────────────────────┴────────┴───────┴─────────┴─────────┴───────┴───────┴───────╯
 
   TOP 3 COST
 ╭───┬────────────────────────┬───────┬────────┬───────╮
 │ # │ Model                  │ Total │ CNY    │ Share │
 ├───┼────────────────────────┼───────┼────────┼───────┤
-│ 1 │ minimax-m2.7-highspeed │ 6.49M │ ¥10.00 │ 57.9% │
-│ 2 │ minimax-m2.7           │ 4.72M │ ¥2.03  │ 42.1% │
+│ 1 │ MiniMax-M2.7-HighSpeed │ 6.49M │ ¥10.00 │ 57.9% │
+│ 2 │ MiniMax-M2.7           │ 4.72M │ ¥2.03  │ 42.1% │
 ╰───┴────────────────────────┴───────┴────────┴───────╯
 ```
+
+## Architecture
+
+```
+messages.model_id (原始，append-only)
+        │
+        ▼ resolve_alias()
+messages.canonical_id (归一化，用于聚合)
+        │
+        ▼ GROUP BY canonical_id
+daily_summary (预聚合表)
+        │
+        ▼ resolve_pretty_name()
+报表展示 (美化名称)
+```
+
+Historical `messages.cost` is computed at insert time and never backfilled — price changes don't affect recorded data.
+
+## Database
+
+`~/.calctokens.db` (SQLite, WAL mode)
+
+| Table | Purpose |
+|-------|---------|
+| `messages` | Authoritative raw data (model_id + canonical_id, append-only) |
+| `daily_summary` | Pre-aggregated by (date, client, canonical_id) |
+| `openrouter_models` | OpenRouter model metadata + pricing, upserted by `--upgrade` |
+| `exchange_rates` | USD/CNY rate history |
+| `exchange_cache` | Daily rate cache |
+| `history` | Snapshot history for delta comparison |
 
 ## Tech Stack
 
 - Rust
-- `tokscale-core` — token data engine (async, multi-client)
+- `calctokens-core` — built-in workspace crate (async, multi-client token engine)
 - `tokio` — async runtime
 - `clap` — CLI argument parsing
-- `reqwest` — HTTP client for exchange rate API
+- `reqwest` — HTTP client (exchange rate + OpenRouter APIs)
 - `serde` / `serde_json` — JSON serialization
-- `rusqlite` — SQLite authoritative data store with WAL & concurrency optimizations
+- `rusqlite` — SQLite with WAL & concurrency optimizations
+- `tabled` — terminal table rendering
+- `chrono` — date/time handling
 
 ## License
 
-MIT (same as [tokscale](https://github.com/junhoyeo/tokscale))
+MIT

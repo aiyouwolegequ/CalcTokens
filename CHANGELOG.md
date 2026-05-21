@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.8.1] - 2026-05-21
+
+### Added
+- **Model Display Name Unification**: Added mappings and aliases for DeepSeek-v4-Pro, DeepSeek-V3, GPT-5.5, GPT-5.2, GPT-4o, and Claude-Opus-4.7 to display clean pretty names.
+- **Database Schema Migration**: Added database migrations to automatically update legacy logs to the new model names.
+
 ## [0.8.0] - 2026-05-21
 
 ### Added

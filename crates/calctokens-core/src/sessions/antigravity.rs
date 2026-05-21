@@ -59,7 +59,7 @@ fn parse_usage_row(value: &Value, fallback_model: Option<&str>) -> Option<Unifie
         .map(|text| text.to_string())
         .or_else(|| fallback_model.map(|text| text.to_string()))
         .unwrap_or_else(|| "unknown".to_string());
-    let model_id = pricing::aliases::resolve_alias(&model_id)
+    let model_id = pricing::aliases::resolve_pretty_name(&model_id)
         .unwrap_or(model_id.as_str())
         .to_string();
 
@@ -135,7 +135,7 @@ mod tests {
         let messages = parse_antigravity_file(path.path());
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].client, "antigravity");
-        assert_eq!(messages[0].model_id, "claude-sonnet-4-6");
+        assert_eq!(messages[0].model_id, "Claude-Sonnet-4.6（Thinking）");
         assert_eq!(messages[0].tokens.input, 12);
         assert_eq!(messages[0].tokens.reasoning, 1);
         assert_eq!(messages[0].dedup_key.as_deref(), Some("resp-1"));
@@ -151,7 +151,7 @@ mod tests {
 
         let messages = parse_antigravity_file(path.path());
         assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].model_id, "claude-opus-4-6");
+        assert_eq!(messages[0].model_id, "Claude-Opus-4.6（Thinking）");
         assert_eq!(messages[0].provider_id, "anthropic");
     }
 }

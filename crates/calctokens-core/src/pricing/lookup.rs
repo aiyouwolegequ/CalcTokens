@@ -962,7 +962,10 @@ fn normalize_model_name(model_id: &str) -> Option<String> {
     let lower = model_id.to_lowercase();
 
     if lower.contains("opus") {
-        if contains_delimited_fragment(&lower, "4.6") || contains_delimited_fragment(&lower, "4-6")
+        if contains_delimited_fragment(&lower, "4.7") || contains_delimited_fragment(&lower, "4-7")
+        {
+            return Some("claude-opus-4-7".into());
+        } else if contains_delimited_fragment(&lower, "4.6") || contains_delimited_fragment(&lower, "4-6")
         {
             return Some("claude-opus-4-6".into());
         } else if contains_delimited_fragment(&lower, "4.5")
@@ -2419,6 +2422,32 @@ mod tests {
         let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
         let result = lookup.lookup("opus-4.6").unwrap();
         assert_eq!(result.matched_key, "claude-opus-4-6");
+        assert_eq!(result.source, "LiteLLM");
+    }
+
+    #[test]
+    fn test_normalize_opus_4_7_prefers_4_7_over_4() {
+        let mut litellm = HashMap::new();
+        litellm.insert(
+            "claude-opus-4".into(),
+            ModelPricing {
+                input_cost_per_token: Some(0.00002),
+                output_cost_per_token: Some(0.0001),
+                ..Default::default()
+            },
+        );
+        litellm.insert(
+            "claude-opus-4-7".into(),
+            ModelPricing {
+                input_cost_per_token: Some(0.00001),
+                output_cost_per_token: Some(0.00005),
+                ..Default::default()
+            },
+        );
+
+        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let result = lookup.lookup("opus-4-7").unwrap();
+        assert_eq!(result.matched_key, "claude-opus-4-7");
         assert_eq!(result.source, "LiteLLM");
     }
 

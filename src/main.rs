@@ -156,6 +156,69 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         [],
     )?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_daily_summary_model ON daily_summary(model_id)", [])?;
+
+    // Migrate old model names to new pretty names for Antigravity client
+    conn.execute(
+        "UPDATE messages SET model_id = 'Gemini-3.5-Flash（High）' WHERE client = 'antigravity' AND model_id IN ('gemini-3-flash-a', 'gemini-3-flash-high')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE messages SET model_id = 'Gemini-3.5-Flash（Medium）' WHERE client = 'antigravity' AND model_id IN ('gemini-3-flash-preview', 'gemini-3-flash-c', 'model_placeholder_m47', 'gemini-3-flash')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE messages SET model_id = 'Gemini-3.1-Pro（High）' WHERE client = 'antigravity' AND model_id IN ('gemini-3-pro-high', 'gemini-3.1-pro-high', 'model_placeholder_m36')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE messages SET model_id = 'Gemini-3.1-Pro（Low）' WHERE client = 'antigravity' AND model_id IN ('gemini-3-pro-low', 'gemini-3.1-pro-low', 'gemini-3.1-pro', 'model_placeholder_m37')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE messages SET model_id = 'Claude-Sonnet-4.6（Thinking）' WHERE client = 'antigravity' AND model_id IN ('claude-sonnet-4-6-thinking', 'claude-sonnet-4.6-thinking', 'model_placeholder_m35', 'claude-sonnet-4-6', 'claude-sonnet-4.6')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE messages SET model_id = 'Claude-Opus-4.6（Thinking）' WHERE client = 'antigravity' AND model_id IN ('claude-opus-4-6-thinking', 'claude-opus-4.6-thinking', 'model_placeholder_m26', 'claude-opus-4-6', 'claude-opus-4.6')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE messages SET model_id = 'GPT-OSS-120B（Medium）' WHERE client = 'antigravity' AND model_id IN ('gpt-oss-120b-medium', 'model_openai_gpt_oss_120b_medium')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE messages SET model_id = 'Claude-Opus-4.7' WHERE client = 'antigravity' AND model_id IN ('claude-opus-4-7', 'claude-opus-4.7')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE messages SET model_id = 'DeepSeek-v4-Pro' WHERE client = 'antigravity' AND model_id IN ('deepseek-v4-pro', 'deepseek-v4.pro')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE messages SET model_id = 'GPT-5.5' WHERE client = 'antigravity' AND model_id IN ('gpt-5.5', 'gpt-5-5')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE messages SET model_id = 'GPT-5.2' WHERE client = 'antigravity' AND model_id IN ('gpt-5.2', 'gpt-5-2')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE messages SET model_id = 'DeepSeek-V3' WHERE client = 'antigravity' AND model_id IN ('deepseek-v3', 'deepseek-v3-0324')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE messages SET model_id = 'DeepSeek-Chat' WHERE client = 'antigravity' AND model_id IN ('deepseek-chat')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE messages SET model_id = 'DeepSeek-Coder' WHERE client = 'antigravity' AND model_id IN ('deepseek-coder')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE messages SET model_id = 'GPT-4o' WHERE client = 'antigravity' AND model_id IN ('gpt-4o')",
+        [],
+    )?;
+
     Ok(())
 }
 

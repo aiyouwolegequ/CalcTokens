@@ -1,6 +1,6 @@
 use super::{aliases, litellm::ModelPricing};
 use crate::{provider_identity, strip_parenthesized_reasoning_tier, TokenBreakdown};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::RwLock;
 
 const PROVIDER_PREFIXES: &[&str] = &[
@@ -90,7 +90,7 @@ pub struct PricingLookup {
     openrouter_lower: HashMap<String, String>,
     openrouter_model_part: HashMap<String, String>,
     cursor_lower: HashMap<String, String>,
-    lookup_cache: RwLock<HashMap<String, Option<CachedResult>>>,
+    lookup_cache: RwLock<(HashMap<String, Option<CachedResult>>, VecDeque<String>)>,
 }
 
 pub struct LookupResult {
@@ -161,7 +161,7 @@ impl PricingLookup {
             openrouter_lower,
             openrouter_model_part,
             cursor_lower,
-            lookup_cache: RwLock::new(HashMap::with_capacity(64)),
+            lookup_cache: RwLock::new((HashMap::with_capacity(64), VecDeque::with_capacity(64))),
         }
     }
 
@@ -180,7 +180,7 @@ impl PricingLookup {
             .lookup_cache
             .read()
             .ok()
-            .and_then(|c| c.get(&cache_key).cloned())
+            .and_then(|guard| guard.0.get(&cache_key).cloned())
         {
             return cached.map(|c| LookupResult {
                 pricing: c.pricing,
@@ -191,25 +191,26 @@ impl PricingLookup {
 
         let result = self.lookup_with_source_and_provider(model_id, None, provider_id);
 
-        if let Ok(mut cache) = self.lookup_cache.write() {
-            if cache.len() >= MAX_LOOKUP_CACHE_ENTRIES {
-                // Evict ~25% of entries instead of clearing everything.
-                // This avoids a thundering-herd cache miss storm that happens
-                // when clear() wipes all entries at once.
-                let evict_count = cache.len() / 4;
-                let keys_to_remove: Vec<String> = cache.keys().take(evict_count).cloned().collect();
-                for key in keys_to_remove {
-                    cache.remove(&key);
+        if let Ok(mut cache_guard) = self.lookup_cache.write() {
+            let (map, order) = &mut *cache_guard;
+            if map.len() >= MAX_LOOKUP_CACHE_ENTRIES {
+                // FIFO eviction: remove the oldest 25% of entries.
+                let evict_count = map.len() / 4;
+                for _ in 0..evict_count {
+                    if let Some(old_key) = order.pop_front() {
+                        map.remove(&old_key);
+                    }
                 }
             }
-            cache.insert(
-                cache_key,
+            map.insert(
+                cache_key.clone(),
                 result.as_ref().map(|r| CachedResult {
                     pricing: r.pricing.clone(),
                     source: r.source.clone(),
                     matched_key: r.matched_key.clone(),
                 }),
             );
+            order.push_back(cache_key);
         }
 
         result

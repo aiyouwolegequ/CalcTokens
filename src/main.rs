@@ -60,6 +60,9 @@ struct Args {
     /// Sync OpenRouter model metadata and exchange rates to local database
     #[arg(long, conflicts_with_all = ["today", "month", "all", "monthly", "hourly", "pricing", "clients"])]
     upgrade: bool,
+    /// Skip message sync and daily_summary refresh (read-only historical queries)
+    #[arg(long)]
+    no_sync: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -136,6 +139,8 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
     )?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_date ON messages(date)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_client ON messages(client)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_date_client ON messages(date, client)", [])?;
 
     // canonical_id: normalized key for aggregation across raw model_id variants.
     // Added via migration so existing databases don't need full rebuild.
@@ -158,11 +163,9 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         [],
     )?;
 
-    // daily_summary: rebuilt with canonical_id as the aggregation key.
-    // Drop and recreate to change PK from (date, client, model_id) to (date, client, canonical_id).
-    conn.execute("DROP TABLE IF EXISTS daily_summary", [])?;
+    // daily_summary: pre-aggregated with canonical_id as the aggregation key.
     conn.execute(
-        "CREATE TABLE daily_summary (
+        "CREATE TABLE IF NOT EXISTS daily_summary (
             date TEXT NOT NULL,
             client TEXT NOT NULL,
             canonical_id TEXT NOT NULL,
@@ -281,7 +284,7 @@ fn save_record(conn: &Connection, range: &str, total_in: i64, total_out: i64,
 // Parse all client log files, store every message in SQLite.
 // Dedup by message_key so repeated runs only add new messages.
 
-fn sync_messages(conn: &Connection, rt: &Runtime, clients: Option<Vec<String>>) -> Result<(), Box<dyn std::error::Error>> {
+fn sync_messages(conn: &Connection, rt: &Runtime, clients: Option<Vec<String>>) -> Result<usize, Box<dyn std::error::Error>> {
     // ── Antigravity auto sync hook ──
     if let Err(e) = antigravity::sync_antigravity() {
         eprintln!("Warning: Antigravity sync failed: {}", e);
@@ -298,6 +301,10 @@ fn sync_messages(conn: &Connection, rt: &Runtime, clients: Option<Vec<String>>) 
     };
 
     let messages = rt.block_on(calctokens_core::parse_local_unified_messages(opts))?;
+
+    let before_count: usize = conn.query_row(
+        "SELECT COUNT(*) FROM messages", [], |r| r.get(0),
+    )?;
 
     let tx = conn.unchecked_transaction()?;
     {
@@ -333,15 +340,18 @@ fn sync_messages(conn: &Connection, rt: &Runtime, clients: Option<Vec<String>>) 
     }
     tx.commit()?;
 
-    Ok(())
+    let after_count: usize = conn.query_row(
+        "SELECT COUNT(*) FROM messages", [], |r| r.get(0),
+    )?;
+    Ok(after_count.saturating_sub(before_count))
 }
 
-/// Rebuild daily_summary from raw messages, grouped by canonical_id.
+/// Refresh daily_summary from raw messages, grouped by canonical_id.
+/// Uses INSERT OR REPLACE to upsert — only changed groups are written.
 /// canonical_id is never NULL after backfill — COALESCE is defensive.
 fn refresh_daily_summary(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute("DELETE FROM daily_summary", [])?;
     conn.execute(
-        "INSERT INTO daily_summary
+        "INSERT OR REPLACE INTO daily_summary
          (date, client, canonical_id, provider_id,
           input_tokens, output_tokens, cache_read, cache_write, reasoning,
           cost, message_count, turn_count)
@@ -1063,11 +1073,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         Some(args.client.clone())
     };
-    if let Err(e) = sync_messages(&conn, &rt, sync_clients) {
-        eprintln!("Warning: message sync failed (data may be stale): {}", e);
-    }
-    if let Err(e) = refresh_daily_summary(&conn) {
-        eprintln!("Warning: daily_summary refresh failed: {}", e);
+    let new_count = if args.no_sync {
+        0 // Skip sync entirely for read-only historical queries
+    } else {
+        match sync_messages(&conn, &rt, sync_clients) {
+            Ok(n) => n,
+            Err(e) => {
+                eprintln!("Warning: message sync failed (data may be stale): {}", e);
+                0
+            }
+        }
+    };
+    if new_count > 0 {
+        if let Err(e) = refresh_daily_summary(&conn) {
+            eprintln!("Warning: daily_summary refresh failed: {}", e);
+        }
     }
 
     // ── monthly view ───────────────────────────────────────────────

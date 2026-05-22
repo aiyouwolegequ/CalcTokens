@@ -172,16 +172,18 @@ pub fn scan_directory(root: &str, pattern: &str) -> Vec<PathBuf> {
         return Vec::new();
     }
 
-    let mut paths: Vec<PathBuf> = WalkDir::new(root)
+    // Collect entries first (WalkDir is sequential I/O), then filter in parallel.
+    // Avoids par_bridge mutex contention on the sequential directory iterator.
+    let entries: Vec<_> = WalkDir::new(root)
         .into_iter()
-        .par_bridge()
         .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_file())
+        .collect();
+
+    let mut paths: Vec<PathBuf> = entries
+        .into_par_iter()
         .filter(|e| {
             let path = e.path();
-            if !path.is_file() {
-                return false;
-            }
-
             let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
             let is_in_archive_dir = path.components().any(|c| {
@@ -194,8 +196,6 @@ pub fn scan_directory(root: &str, pattern: &str) -> Vec<PathBuf> {
                 "*.json" => file_name.ends_with(".json"),
                 "*.json|*.jsonl" => file_name.ends_with(".json") || file_name.ends_with(".jsonl"),
                 "*.jsonl" => file_name.ends_with(".jsonl"),
-                // OpenClaw: also match archived transcripts
-                // (<uuid>.jsonl.deleted.<ts>, <uuid>.jsonl.reset.<ts>)
                 "*.jsonl*" => {
                     file_name.ends_with(".jsonl")
                         || file_name.contains(".jsonl.deleted.")
@@ -206,21 +206,15 @@ pub fn scan_directory(root: &str, pattern: &str) -> Vec<PathBuf> {
                     if is_in_archive_dir {
                         return false;
                     }
-
                     if file_name == "usage.csv" {
                         return true;
                     }
-
-                    // Accept only per-account files: usage.<account>.csv
                     if !file_name.starts_with("usage.") || !file_name.ends_with(".csv") {
                         return false;
                     }
-
-                    // Exclude legacy backups like usage.backup-<ts>.csv
                     if file_name.starts_with("usage.backup") {
                         return false;
                     }
-
                     true
                 }
                 "session-*.json" => {

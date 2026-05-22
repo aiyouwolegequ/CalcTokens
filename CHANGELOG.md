@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.9.0] - 2026-05-22
+
+### Added
+- **`--no-sync` flag**: Skip message sync and daily_summary refresh for read-only historical queries. Reports return in ~5ms instead of ~5s.
+- **agy CLI support**: Auto-discover agy CLI sessions from `~/.gemini/antigravity-cli/conversations/*.pb` when `GetAllCascadeTrajectories` API returns empty (agy v1.0.1+ / Antigravity v2.0.1+).
+
+### Changed
+- **`daily_summary` persistence**: Table is no longer dropped and recreated on every invocation. Uses `INSERT OR REPLACE` upsert semantics, and refresh is skipped when no new messages are synced.
+- **Pricing cache**: FIFO eviction (deterministic) replaces HashMap random eviction for stable cache hit rates.
+- **Scanner**: `par_bridge` replaced with collect + `into_par_iter` to eliminate rayon mutex contention during file scanning.
+
+### Performance
+- **`lsof` calls**: Merged N per-process `lsof` calls into a single `lsof -iTCP -sTCP:LISTEN` for Antigravity port discovery.
+- **Heartbeat probing**: HTTP and HTTPS probes now run in parallel (worst-case latency halved).
+- **New indexes**: `messages(timestamp)` and `messages(date, client)` compound index for time-range and filtered queries.
+
+### Fixed
+- **Antigravity sync**: agy CLI v1.0.1 sessions are now discovered via filesystem fallback when the gRPC trajectory listing API returns empty.
+- **API response format**: Handle new agy CLI response where token values are strings and `responseOutputTokens` is separate from `outputTokens`.
+
+### Technical
+- **Response parsing**: `process_trajectory()` falls back to `chatModel.usage` directly when `retryInfos` is empty.
+- **Output token resolution**: `resolve_output_and_reasoning()` correctly separates visible output from thinking tokens in the new API format.
+
 ## [0.8.8] - 2026-05-22
 
 ### Fixed

@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::UNIX_EPOCH;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 
@@ -47,6 +48,61 @@ fn get_cache_dir() -> PathBuf {
         .join(".config")
         .join("calctokens")
         .join("antigravity-cache")
+}
+
+fn get_agy_data_dir() -> Option<PathBuf> {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok()?;
+    let dir = Path::new(&home).join(".gemini").join("antigravity-cli");
+    if dir.exists() { Some(dir) } else { None }
+}
+
+#[derive(Debug, Clone)]
+struct AgySessionInfo {
+    session_id: String,
+    pb_mtime_ms: i64,
+    pb_size: i64,
+}
+
+/// Discover sessions from agy CLI's conversations directory.
+/// Used as a fallback when GetAllCascadeTrajectories returns empty.
+fn get_agy_cli_sessions() -> Vec<AgySessionInfo> {
+    let data_dir = match get_agy_data_dir() {
+        Some(d) => d,
+        None => return vec![],
+    };
+    let conversations_dir = data_dir.join("conversations");
+    if !conversations_dir.exists() {
+        return vec![];
+    }
+    let mut sessions = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&conversations_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().map_or(false, |e| e == "pb") {
+                if let Some(session_id) = path.file_stem().and_then(|s| s.to_str()) {
+                    let (mtime_ms, size) = std::fs::metadata(&path)
+                        .ok()
+                        .map(|m| {
+                            let mt = m.modified().ok()
+                                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                                .map(|d| d.as_millis() as i64)
+                                .unwrap_or(0);
+                            let sz = m.len() as i64;
+                            (mt, sz)
+                        })
+                        .unwrap_or((0, 0));
+                    sessions.push(AgySessionInfo {
+                        session_id: session_id.to_string(),
+                        pb_mtime_ms: mtime_ms,
+                        pb_size: size,
+                    });
+                }
+            }
+        }
+    }
+    sessions
 }
 
 fn get_active_processes() -> Vec<ProcessCandidate> {
@@ -117,22 +173,42 @@ fn extract_csrf_token(args: &str) -> String {
     }
 }
 
-fn get_listening_ports(pid: u32) -> Vec<u16> {
-    let mut ports = Vec::new();
-    let output = match Command::new("lsof").args(&["-Pan", "-p", &pid.to_string(), "-i"]).output() {
+/// Single lsof call to discover all TCP LISTEN ports with their PIDs.
+/// Returns Vec of (pid, port) pairs for all listening TCP sockets.
+fn get_all_listening_ports() -> Vec<(u32, u16)> {
+    let mut result = Vec::new();
+    let output = match Command::new("lsof")
+        .args(&["-iTCP", "-sTCP:LISTEN", "-Pan"])
+        .output()
+    {
         Ok(out) => out,
-        Err(_) => return ports,
+        Err(_) => return result,
     };
-    
     let output_str = String::from_utf8_lossy(&output.stdout);
-    for line in output_str.lines() {
+    for line in output_str.lines().skip(1) {
+        if !line.contains("LISTEN") || !line.contains("TCP") {
+            continue;
+        }
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() < 2 {
+            continue;
+        }
+        let pid: u32 = match fields[1].parse() {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
         if let Some(port) = extract_port_from_lsof_line(line) {
-            if !ports.contains(&port) {
-                ports.push(port);
-            }
+            result.push((pid, port));
         }
     }
-    ports
+    result
+}
+
+fn get_listening_ports(pid: u32, all_ports: &[(u32, u16)]) -> Vec<u16> {
+    all_ports.iter()
+        .filter(|(p, _)| *p == pid)
+        .map(|(_, port)| *port)
+        .collect()
 }
 
 fn extract_port_from_lsof_line(line: &str) -> Option<u16> {
@@ -162,33 +238,47 @@ fn probe_heartbeat(client: &Client, port: u16, csrf_token: &str) -> Option<(Stri
             headers.insert("X-Codeium-Csrf-Token", val);
         }
     }
-    
+
     let payload = json!({"uuid": "00000000-0000-0000-0000-000000000000"});
-    
-    // Try HTTP
     let http_url = format!("http://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/Heartbeat", port);
-    if let Ok(res) = client.post(&http_url).headers(headers.clone()).json(&payload).send() {
-        if res.status().is_success() {
-            if let Ok(text) = res.text() {
-                if text.contains("lastExtensionHeartbeat") {
-                    return Some(("http".to_string(), headers));
-                }
-            }
-        }
-    }
-    
-    // Try HTTPS
     let https_url = format!("https://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/Heartbeat", port);
-    if let Ok(res) = client.post(&https_url).headers(headers.clone()).json(&payload).send() {
-        if res.status().is_success() {
-            if let Ok(text) = res.text() {
-                if text.contains("lastExtensionHeartbeat") {
-                    return Some(("https".to_string(), headers));
+
+    // Probe HTTP and HTTPS in parallel — the agy daemon listens on one protocol per port.
+    let (tx, rx) = std::sync::mpsc::channel();
+    for (url, protocol, hdrs) in [
+        (http_url, "http", headers.clone()),
+        (https_url, "https", headers),
+    ] {
+        let tx = tx.clone();
+        let cl = client.clone();
+        let pld = payload.clone();
+        std::thread::spawn(move || {
+            let result = (|| {
+                let res = cl.post(&url).headers(hdrs).json(&pld).send().ok()?;
+                if !res.status().is_success() { return None; }
+                let text = res.text().ok()?;
+                if text.contains("lastExtensionHeartbeat") { Some(protocol.to_string()) } else { None }
+            })();
+            let _ = tx.send(result);
+        });
+    }
+    drop(tx);
+
+    // Return the first successful protocol
+    for _ in 0..2 {
+        if let Ok(Some(protocol)) = rx.recv() {
+            // Rebuild headers for the winning protocol
+            let mut h = HeaderMap::new();
+            h.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            h.insert("Connect-Protocol-Version", HeaderValue::from_static("1"));
+            if !csrf_token.is_empty() {
+                if let Ok(val) = HeaderValue::from_str(csrf_token) {
+                    h.insert("X-Codeium-Csrf-Token", val);
                 }
             }
+            return Some((protocol, h));
         }
     }
-    
     None
 }
 
@@ -270,6 +360,18 @@ fn to_safe_i64(value: Option<&Value>) -> i64 {
     }
 }
 
+/// agy CLI v1.0.1+: outputTokens may include thinking tokens.
+/// responseOutputTokens is the visible output when present.
+fn resolve_output_and_reasoning(raw_out: i64, raw_reasoning: i64, response_out: i64) -> (i64, i64) {
+    if response_out > 0 {
+        (response_out, raw_reasoning)
+    } else if raw_reasoning > 0 && raw_reasoning < raw_out {
+        (raw_out - raw_reasoning, raw_reasoning)
+    } else {
+        (raw_out, raw_reasoning)
+    }
+}
+
 fn sha256_hash(input: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
@@ -340,14 +442,19 @@ fn process_trajectory(
             .and_then(|v| v.as_array())
             .cloned()
             .unwrap_or_default();
-            
-        for retry in retry_infos {
-            let usage = retry.get("usage").unwrap_or(&retry);
+
+        let mut has_retry_usage = false;
+
+        for retry in &retry_infos {
+            let usage = retry.get("usage").unwrap_or(retry);
             let inp = to_safe_i64(usage.get("inputTokens"));
-            let out = to_safe_i64(usage.get("outputTokens"));
+            let raw_out = to_safe_i64(usage.get("outputTokens"));
+            let raw_reasoning = to_safe_i64(usage.get("thinkingOutputTokens"));
+            let response_out = to_safe_i64(usage.get("responseOutputTokens"));
             let cache_read = to_safe_i64(usage.get("cacheReadTokens"));
-            let reasoning = to_safe_i64(usage.get("thinkingOutputTokens"));
-            
+
+            let (out, reasoning) = resolve_output_and_reasoning(raw_out, raw_reasoning, response_out);
+
             let mut timestamp_ms = parse_timestamp(
                 usage
                     .get("createdAt")
@@ -356,11 +463,13 @@ fn process_trajectory(
             if timestamp_ms == 0 {
                 timestamp_ms = created_at_ms;
             }
-            
+
             if inp == 0 && out == 0 && cache_read == 0 && reasoning == 0 {
                 continue;
             }
-            
+
+            has_retry_usage = true;
+
             let usage_line = json!({
                 "type": "usage",
                 "sessionId": session_id,
@@ -375,6 +484,39 @@ fn process_trajectory(
             });
             if let Ok(line_str) = serde_json::to_string(&usage_line) {
                 jsonl_lines.push(line_str);
+            }
+        }
+
+        // Fallback: if retryInfos is empty, extract usage directly from chatModel.usage
+        // (agy CLI v1.0.1+ may store usage at the top level instead of inside retryInfos)
+        if !has_retry_usage {
+            if let Some(usage) = chat_model.get("usage") {
+                let inp = to_safe_i64(usage.get("inputTokens"));
+                let raw_out = to_safe_i64(usage.get("outputTokens"));
+                let raw_reasoning = to_safe_i64(usage.get("thinkingOutputTokens"));
+                let response_out = to_safe_i64(usage.get("responseOutputTokens"));
+                let cache_read = to_safe_i64(usage.get("cacheReadTokens"));
+                let cache_write = to_safe_i64(usage.get("cacheWriteTokens"));
+
+                let (out, reasoning) = resolve_output_and_reasoning(raw_out, raw_reasoning, response_out);
+
+                if !(inp == 0 && out == 0 && cache_read == 0 && cache_write == 0 && reasoning == 0) {
+                    let usage_line = json!({
+                        "type": "usage",
+                        "sessionId": session_id,
+                        "modelId": model_id,
+                        "timestamp": created_at_ms,
+                        "input": inp,
+                        "output": out,
+                        "cacheRead": cache_read,
+                        "cacheWrite": cache_write,
+                        "reasoning": reasoning,
+                        "responseId": usage.get("responseId")
+                    });
+                    if let Ok(line_str) = serde_json::to_string(&usage_line) {
+                        jsonl_lines.push(line_str);
+                    }
+                }
             }
         }
     }
@@ -402,29 +544,26 @@ fn process_trajectory(
 
 pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
     let candidates = get_active_processes();
-    
+    let all_ports = get_all_listening_ports();
+
     let client = Client::builder()
         .danger_accept_invalid_certs(true)
         .timeout(std::time::Duration::from_millis(1500))
         .build()?;
-        
+
     let mut active_endpoints = Vec::new();
     let mut connections = Vec::new();
-    
-    for cand in candidates {
-        let pid = cand.pid;
-        let csrf_token = cand.csrf_token;
-        let ports = get_listening_ports(pid);
-        
+
+    for cand in &candidates {
+        let ports = get_listening_ports(cand.pid, &all_ports);
         for port in ports {
-            if let Some((protocol, headers)) = probe_heartbeat(&client, port, &csrf_token) {
-                let fingerprint = format!("pid:{}:port:{}", pid, port);
+            if let Some((protocol, headers)) = probe_heartbeat(&client, port, &cand.csrf_token) {
+                let fingerprint = format!("pid:{}:port:{}", cand.pid, port);
                 connections.push(ConnectionEntry {
                     fingerprint: fingerprint.clone(),
-                    pid,
+                    pid: cand.pid,
                     port,
                 });
-                
                 active_endpoints.push((protocol, port, headers, fingerprint));
             }
         }
@@ -453,7 +592,7 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
     
     let mut new_sessions = std::collections::HashMap::new();
     
-    for (protocol, port, headers, fingerprint) in active_endpoints {
+    for (protocol, port, headers, fingerprint) in &active_endpoints {
         let url = format!("{}://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", protocol, port);
         let res = match client.post(&url).headers(headers.clone()).json(&json!({})).send() {
             Ok(r) => r,
@@ -491,9 +630,9 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
             if let Some((artifact_path, artifact_hash)) = process_trajectory(
                 &client,
                 session_id,
-                &protocol,
-                port,
-                &headers,
+                protocol,
+                *port,
+                headers,
                 &sessions_dir,
             ) {
                 new_sessions.insert(
@@ -511,6 +650,57 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     
+    // ── agy CLI fallback: when GetAllCascadeTrajectories returns empty ──
+    // agy CLI (v1.0.1+) stores conversations as .pb files but the list endpoint
+    // returns {}. Discover sessions from the filesystem and fetch them directly
+    // via GetCascadeTrajectoryGeneratorMetadata.
+    let agy_sessions = get_agy_cli_sessions();
+    if !agy_sessions.is_empty() {
+        // Prefer an agy-specific endpoint (no CSRF token), fall back to any active endpoint
+        let fallback_endpoint = active_endpoints.first().cloned();
+        let agy_endpoint = active_endpoints.iter()
+            .find(|(_, _, headers, _)| !headers.contains_key("X-Codeium-Csrf-Token"))
+            .cloned()
+            .or(fallback_endpoint);
+
+        if let Some((protocol, port, headers, _fingerprint)) = agy_endpoint {
+            for agy_sess in &agy_sessions {
+                if new_sessions.contains_key(&agy_sess.session_id) {
+                    continue;
+                }
+                if let Some(old_sess) = old_sessions.get(&agy_sess.session_id) {
+                    if old_sess.last_modified_ms == agy_sess.pb_mtime_ms
+                        && old_sess.step_count == agy_sess.pb_size
+                        && cache_dir.join(&old_sess.artifact_path).exists()
+                    {
+                        new_sessions.insert(agy_sess.session_id.clone(), old_sess.clone());
+                        continue;
+                    }
+                }
+                if let Some((artifact_path, artifact_hash)) = process_trajectory(
+                    &client,
+                    &agy_sess.session_id,
+                    &protocol,
+                    port,
+                    &headers,
+                    &sessions_dir,
+                ) {
+                    new_sessions.insert(
+                        agy_sess.session_id.clone(),
+                        SessionManifestEntry {
+                            session_id: agy_sess.session_id.clone(),
+                            artifact_path,
+                            last_modified_ms: agy_sess.pb_mtime_ms,
+                            step_count: agy_sess.pb_size,
+                            connection_fingerprint: format!("agy-cli:{}", agy_sess.session_id),
+                            artifact_hash,
+                        },
+                    );
+                }
+            }
+        }
+    }
+
     for (session_id, old_sess) in old_sessions {
         if !new_sessions.contains_key(&session_id) {
             let filepath = cache_dir.join(&old_sess.artifact_path);

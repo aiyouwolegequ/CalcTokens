@@ -15,6 +15,8 @@ AI coding assistant token usage tracker with human-readable K/M/B/T units & real
 - Share percentages (tokens in detail, cost in TOP X)
 - Intelligent delta comparison (last check, yesterday, or last month)
 - Monthly & Hourly trend reports
+- **`--no-sync` flag**: skip sync+refresh for ~5ms read-only reports (~700x speedup)
+- **agy CLI support**: auto-discover Antigravity CLI sessions when gRPC listing API is unavailable
 - Client filtering (`-c/--client`)
 - Pricing lookup with CNY conversion (`--pricing`)
 - Clients overview (`--clients`)
@@ -64,6 +66,7 @@ calctokens --version           # print version
 calctokens --upgrade           # sync OpenRouter metadata + exchange rates
 calctokens -c claude           # filter by client
 calctokens -c kimi --month     # filter by client + time range
+calctokens --no-sync            # skip sync for instant reports (~5ms)
 calctokens --since 2026-01-01  # filter by start date
 calctokens --year 2026         # filter by year
 calctokens --json-output       # output JSON for scripts
@@ -74,6 +77,7 @@ calctokens --json-output       # output JSON for scripts
 - **`--today`:** Shows **Today** vs **Yesterday**, TOP 3 COST.
 - **`--month`:** Shows **This Month** vs **Last Month**, TOP 5 COST.
 - **`--all`:** Shows **All-time**, TOP 10 COST.
+- **`--no-sync`:** Skip message sync and refresh. Works with any report type for instant (~5ms) read-only queries. Useful for historical browsing, script aggregation, and repeated lookups.
 
 ## Output
 

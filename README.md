@@ -55,17 +55,17 @@ sudo cp target/release/calctokens /usr/local/bin/   # Linux
 
 ```bash
 calctokens                     # today's usage vs last check (cached)
-calctokens --today             # today's usage vs yesterday (full)
-calctokens --month             # this month vs last month (full)
-calctokens --all               # all-time usage, TOP 10 COST, no delta
-calctokens --monthly           # monthly trend report
-calctokens --hourly            # hourly usage history
+calctokens today               # today's usage vs yesterday (full) (alias: --today)
+calctokens month               # this month vs last month (full) (alias: --month)
+calctokens all                 # all-time usage, TOP 10 COST, no delta (alias: --all)
+calctokens monthly             # monthly trend report (alias: --monthly)
+calctokens hourly              # hourly usage history (alias: --hourly)
+calctokens clients             # all detected clients (alias: --clients)
+calctokens upgrade             # sync OpenRouter metadata + exchange rates (alias: --upgrade)
 calctokens --pricing MODEL_ID  # model pricing lookup (CNY)
-calctokens --clients           # all detected clients
 calctokens --version           # print version
-calctokens --upgrade           # sync OpenRouter metadata + exchange rates
 calctokens -c claude           # filter by client
-calctokens -c kimi --month     # filter by client + time range
+calctokens -c kimi month       # filter by client + time range (can combine with positional cmd)
 calctokens --no-sync            # skip sync for instant reports (~5ms)
 calctokens --since 2026-01-01  # filter by start date
 calctokens --year 2026         # filter by year

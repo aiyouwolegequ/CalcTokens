@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.9.2] - 2026-05-23
+
+### Added
+- **Positional Subcommands**: Support running standard reports without `--` prefix (e.g., `calctokens today`, `calctokens month`, `calctokens all`, `calctokens upgrade`, etc.) as convenient positional subcommands.
+
 ## [0.9.1] - 2026-05-23
 
 ### Fixed

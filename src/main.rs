@@ -24,26 +24,29 @@ fn db_path() -> String {
 #[derive(Parser, Debug)]
 #[command(name = "calctokens", bin_name = "calctokens", version, about = "AI coding assistant token usage tracker (CNY)")]
 struct Args {
+    /// Optional command or report type: today, month, all, monthly, hourly, clients, upgrade
+    #[arg(index = 1, conflicts_with_all = ["today", "month", "all", "monthly", "hourly", "pricing", "clients", "upgrade"])]
+    command: Option<String>,
     /// Filter by client(s): claude, opencode, codex, gemini, openclaw, hermes, kimi, qwen, antigravity, etc.
     #[arg(long, short, num_args = 1..)]
     client: Vec<String>,
     /// Today's usage (since 00:00) vs yesterday's total, TOP 3 COST
-    #[arg(long, conflicts_with_all = ["month", "all", "monthly", "hourly", "pricing", "clients"])]
+    #[arg(long, conflicts_with_all = ["month", "all", "monthly", "hourly", "pricing", "clients", "upgrade", "command"])]
     today: bool,
     /// This month's usage vs last month's total, TOP 5 COST
-    #[arg(long, conflicts_with_all = ["today", "all", "monthly", "hourly", "pricing", "clients"])]
+    #[arg(long, conflicts_with_all = ["today", "all", "monthly", "hourly", "pricing", "clients", "upgrade", "command"])]
     month: bool,
     /// All time usage, no DELTA, TOP 10 COST
-    #[arg(long, conflicts_with_all = ["today", "month", "monthly", "hourly", "pricing", "clients"])]
+    #[arg(long, conflicts_with_all = ["today", "month", "monthly", "hourly", "pricing", "clients", "upgrade", "command"])]
     all: bool,
-    #[arg(long, conflicts_with_all = ["today", "month", "all", "hourly", "pricing", "clients"])]
+    #[arg(long, conflicts_with_all = ["today", "month", "all", "hourly", "pricing", "clients", "upgrade", "command"])]
     monthly: bool,
-    #[arg(long, conflicts_with_all = ["today", "month", "all", "monthly", "pricing", "clients"])]
+    #[arg(long, conflicts_with_all = ["today", "month", "all", "monthly", "pricing", "clients", "upgrade", "command"])]
     hourly: bool,
     /// Look up pricing for a model (e.g. claude-sonnet-4-20250514)
     #[arg(long, value_name = "MODEL_ID")]
     pricing: Option<String>,
-    #[arg(long, conflicts_with_all = ["today", "month", "all", "monthly", "hourly"])]
+    #[arg(long, conflicts_with_all = ["today", "month", "all", "monthly", "hourly", "upgrade", "command"])]
     clients: bool,
     /// Filter: start date (YYYY-MM-DD)
     #[arg(long)]
@@ -58,7 +61,7 @@ struct Args {
     #[arg(long)]
     json_output: bool,
     /// Sync OpenRouter model metadata and exchange rates to local database
-    #[arg(long, conflicts_with_all = ["today", "month", "all", "monthly", "hourly", "pricing", "clients"])]
+    #[arg(long, conflicts_with_all = ["today", "month", "all", "monthly", "hourly", "pricing", "clients", "command"])]
     upgrade: bool,
     /// Skip message sync and daily_summary refresh (read-only historical queries)
     #[arg(long)]
@@ -999,7 +1002,23 @@ fn do_upgrade(conn: &Connection, rt: &Runtime) -> Result<(), Box<dyn std::error:
 // ── main ────────────────────────────────────────────────────────────────
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = Args::parse();
+    let mut args = Args::parse();
+
+    if let Some(ref cmd) = args.command {
+        match cmd.as_str() {
+            "today" => args.today = true,
+            "month" => args.month = true,
+            "all" => args.all = true,
+            "monthly" => args.monthly = true,
+            "hourly" => args.hourly = true,
+            "clients" => args.clients = true,
+            "upgrade" => args.upgrade = true,
+            _ => {
+                eprintln!("Error: Unknown command or argument '{}'", cmd);
+                std::process::exit(1);
+            }
+        }
+    }
 
     let conn = Connection::open(db_path())?;
     init_db(&conn)?;

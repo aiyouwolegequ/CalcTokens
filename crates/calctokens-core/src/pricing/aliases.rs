@@ -20,6 +20,7 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("gemini-3-flash", "gemini-3.5-flash");
     m.insert("gemini-3-flash-c", "gemini-3.5-flash");
     m.insert("model_placeholder_m47", "gemini-3.5-flash");
+    m.insert("gemini-3.5-flash", "gemini-3.5-flash");
 
     m.insert("gemini-3.1-pro-high", "gemini-3.1-pro");
     m.insert("gemini-3-pro-high", "gemini-3-pro");
@@ -333,6 +334,10 @@ mod tests {
     fn resolves_aliases_to_canonical() {
         assert_eq!(
             resolve_alias("gemini-3-flash"),
+            Some("gemini-3.5-flash")
+        );
+        assert_eq!(
+            resolve_alias("Gemini-3.5-Flash"),
             Some("gemini-3.5-flash")
         );
         assert_eq!(

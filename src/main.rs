@@ -163,6 +163,17 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         [],
     )?;
 
+    // Fix Gemini-3.5-Flash capitalization in canonical_id.
+    conn.execute(
+        "UPDATE messages SET canonical_id = 'gemini-3.5-flash'
+         WHERE canonical_id = 'Gemini-3.5-Flash'",
+        [],
+    )?;
+    conn.execute(
+        "DELETE FROM daily_summary WHERE canonical_id = 'Gemini-3.5-Flash'",
+        [],
+    )?;
+
     // daily_summary: pre-aggregated with canonical_id as the aggregation key.
     conn.execute(
         "CREATE TABLE IF NOT EXISTS daily_summary (

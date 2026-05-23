@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.9.1] - 2026-05-23
+
+### Fixed
+- **Antigravity model canonicalization**: Added `gemini-3.5-flash` self-alias mapping to prevent base models from canonicalizing to capitalized `Gemini-3.5-Flash` and causing split rows in detail views.
+- **DB migration**: Added automatic database migration to fix casing of existing `canonical_id` entries in `messages` and clean up stale duplicates in `daily_summary`.
+
 ## [0.9.0] - 2026-05-22
 
 ### Added

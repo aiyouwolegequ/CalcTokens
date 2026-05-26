@@ -605,7 +605,7 @@ fn file_fingerprint_parts(path: &Path) -> Option<(u64, u64, Vec<FileSampleHash>,
         .ok()?
         .as_nanos() as u64;
     let sample_hashes = compute_sample_hashes(path, size)?;
-    let content_hash = hash_prefix(path, size)?;
+    let content_hash = hash_prefix(path, size.min(10 * 1024 * 1024))?;
     Some((size, modified_ns, sample_hashes, content_hash))
 }
 

@@ -569,24 +569,37 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = Client::builder()
         .danger_accept_invalid_certs(true)
-        .timeout(std::time::Duration::from_millis(1500))
+        .timeout(std::time::Duration::from_millis(500))
         .build()?;
 
     let mut active_endpoints = Vec::new();
     let mut connections = Vec::new();
 
-    for cand in &candidates {
+    let mut probe_handles = Vec::new();
+    for cand in candidates {
         let ports = get_listening_ports(cand.pid, &all_ports);
         for port in ports {
-            if let Some((protocol, headers)) = probe_heartbeat(&client, port, &cand.csrf_token) {
-                let fingerprint = format!("pid:{}:port:{}", cand.pid, port);
-                connections.push(ConnectionEntry {
-                    fingerprint: fingerprint.clone(),
-                    pid: cand.pid,
-                    port,
-                });
-                active_endpoints.push((protocol, port, headers, fingerprint));
-            }
+            let client = client.clone();
+            let csrf_token = cand.csrf_token.clone();
+            let pid = cand.pid;
+            
+            let handle = std::thread::spawn(move || {
+                probe_heartbeat(&client, port, &csrf_token)
+                    .map(|(protocol, headers)| (protocol, port, headers, pid))
+            });
+            probe_handles.push(handle);
+        }
+    }
+
+    for handle in probe_handles {
+        if let Ok(Some((protocol, port, headers, pid))) = handle.join() {
+            let fingerprint = format!("pid:{}:port:{}", pid, port);
+            connections.push(ConnectionEntry {
+                fingerprint: fingerprint.clone(),
+                pid,
+                port,
+            });
+            active_endpoints.push((protocol, port, headers, fingerprint));
         }
     }
     

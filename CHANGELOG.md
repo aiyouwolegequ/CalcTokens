@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.4] - 2026-05-26
+
+### Optimized
+- **Antigravity Port Probing**: Parallelized loopback port probing for multiple candidate daemons, and reduced connection timeout from 1500ms to 500ms to eliminate accumulated network delays.
+- **Fingerprinting Optimization**: Limited the database prefix hash length to at most 10MB to prevent `hash_prefix` from parsing huge database files (e.g. 2.4 GB `opencode.db`), reducing fingerprinting latency from several seconds to less than 15 milliseconds.
+- **Unit Testing**: Isolated the Zed path resolution unit test from host `XDG_DATA_HOME` environment variables to prevent testing failures under customized environments.
+
 ## [0.9.3] - 2026-05-26
 
 ### Fixed

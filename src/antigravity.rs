@@ -50,12 +50,20 @@ fn get_cache_dir() -> PathBuf {
         .join("antigravity-cache")
 }
 
-fn get_agy_data_dir() -> Option<PathBuf> {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .ok()?;
-    let dir = Path::new(&home).join(".gemini").join("antigravity-cli");
-    if dir.exists() { Some(dir) } else { None }
+fn get_agy_data_dirs() -> Vec<PathBuf> {
+    let home = match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+        Ok(h) => h,
+        Err(_) => return vec![],
+    };
+    let mut dirs = Vec::new();
+    let gemini_dir = Path::new(&home).join(".gemini");
+    for sub in &["antigravity-cli", "antigravity", "antigravity-ide"] {
+        let dir = gemini_dir.join(sub);
+        if dir.exists() {
+            dirs.push(dir);
+        }
+    }
+    dirs
 }
 
 #[derive(Debug, Clone)]
@@ -65,44 +73,57 @@ struct AgySessionInfo {
     pb_size: i64,
 }
 
-/// Discover sessions from agy CLI's conversations directory.
+/// Discover sessions from all agy/Antigravity conversations directories.
 /// Used as a fallback when GetAllCascadeTrajectories returns empty.
 fn get_agy_cli_sessions() -> Vec<AgySessionInfo> {
-    let data_dir = match get_agy_data_dir() {
-        Some(d) => d,
-        None => return vec![],
-    };
-    let conversations_dir = data_dir.join("conversations");
-    if !conversations_dir.exists() {
-        return vec![];
-    }
-    let mut sessions = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&conversations_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().map_or(false, |e| e == "pb") {
-                if let Some(session_id) = path.file_stem().and_then(|s| s.to_str()) {
-                    let (mtime_ms, size) = std::fs::metadata(&path)
-                        .ok()
-                        .map(|m| {
-                            let mt = m.modified().ok()
-                                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                                .map(|d| d.as_millis() as i64)
-                                .unwrap_or(0);
-                            let sz = m.len() as i64;
-                            (mt, sz)
-                        })
-                        .unwrap_or((0, 0));
-                    sessions.push(AgySessionInfo {
-                        session_id: session_id.to_string(),
-                        pb_mtime_ms: mtime_ms,
-                        pb_size: size,
-                    });
+    let data_dirs = get_agy_data_dirs();
+    let mut sessions_map: std::collections::HashMap<String, AgySessionInfo> = std::collections::HashMap::new();
+
+    for data_dir in data_dirs {
+        let conversations_dir = data_dir.join("conversations");
+        if !conversations_dir.exists() {
+            continue;
+        }
+        if let Ok(entries) = std::fs::read_dir(&conversations_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().map_or(false, |e| e == "pb") {
+                    if let Some(session_id) = path.file_stem().and_then(|s| s.to_str()) {
+                        let (mtime_ms, size) = std::fs::metadata(&path)
+                            .ok()
+                            .map(|m| {
+                                let mt = m.modified().ok()
+                                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                                    .map(|d| d.as_millis() as i64)
+                                    .unwrap_or(0);
+                                let sz = m.len() as i64;
+                                (mt, sz)
+                            })
+                            .unwrap_or((0, 0));
+                        
+                        let session_id_str = session_id.to_string();
+                        // De-duplicate: keep the one with the latest mtime_ms
+                        if let Some(existing) = sessions_map.get(&session_id_str) {
+                            if mtime_ms > existing.pb_mtime_ms {
+                                sessions_map.insert(session_id_str.clone(), AgySessionInfo {
+                                    session_id: session_id_str,
+                                    pb_mtime_ms: mtime_ms,
+                                    pb_size: size,
+                                });
+                            }
+                        } else {
+                            sessions_map.insert(session_id_str.clone(), AgySessionInfo {
+                                session_id: session_id_str,
+                                pb_mtime_ms: mtime_ms,
+                                pb_size: size,
+                            });
+                        }
+                    }
                 }
             }
         }
     }
-    sessions
+    sessions_map.into_values().collect()
 }
 
 fn get_active_processes() -> Vec<ProcessCandidate> {

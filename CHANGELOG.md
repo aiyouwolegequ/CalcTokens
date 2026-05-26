@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.9.3] - 2026-05-26
+
+### Fixed
+- **Antigravity synchronization**: Expanded session discovery fallback to scan not only `~/.gemini/antigravity-cli/` but also `~/.gemini/antigravity/` and `~/.gemini/antigravity-ide/` conversations, and de-duplicate sessions by keeping the most recently modified `.pb` file.
+
 ## [0.9.2] - 2026-05-23
 
 ### Added

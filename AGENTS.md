@@ -1,19 +1,16 @@
 <claude-mem-context>
 # Memory Context
 
-# [CalcTokens] recent context, 2026-05-26 2:20pm GMT+8
+# [CalcTokens] recent context, 2026-05-27 11:57am GMT+8
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (16,720t read) | 224,819t work | 93% savings
+Stats: 50 obs (16,886t read) | 234,983t work | 93% savings
 
 ### May 8, 2026
-4560 11:18p ✅ Detail table columns reordered: token metrics left, cost metrics right
-4563 11:19p ✅ Column reorder verified live — token metrics left, cost metrics right
-4564 " ✅ Column reorder committed as 08b653c
-S2089 Update CalcTokens.md project documentation — enhance project overview with feature details and continue editing documentation (May 8 at 11:19 PM)
+4564 11:19p ✅ Column reorder committed as 08b653c
 4572 11:29p ✅ CalcTokens 项目文档更新版本历史至 v0.6.4
 S2090 Update CalcTokens.md project documentation to reflect v0.6.2-v0.6.4 display optimizations — Share percentage, column reordering, Cache header abbreviations, and calc-tokens.sh final column structure (May 8 at 11:30 PM)
 S2091 Expand CalcTokens.md section 5.7 (calc-tokens.sh aggregation script) — add usage examples, output structure, architecture design, SQLite persistence, and key pitfalls (May 8 at 11:32 PM)
@@ -69,17 +66,14 @@ S3101 CalcTokens v0.9.0 release deployment and verification across multiple plat
 5966 " 🔵 CalcTokens v0.9.0 verified on remote MacMini
 5967 2:43p 🔵 CalcTokens v0.9.0 verified on Linux (Jakarta)
 5968 " 🔵 CalcTokens antigravity client filter returns no data
+S3102 CalcTokens v0.9.0 documentation update across project README and Obsidian knowledge base (May 22 at 2:44 PM)
 5969 2:49p ✅ CalcTokens v0.9.0 documentation updated with agy CLI compatibility and performance optimizations
 5970 " ✅ CalcTokens README updated and published for v0.9.0 features
-S3102 CalcTokens v0.9.0 documentation update across project README and Obsidian knowledge base (May 22 at 2:50 PM)
-**Investigated**: Documentation files for CalcTokens project were updated to reflect v0.9.0 release. Examined README.md (public-facing) and CalcTokens.md (Obsidian vault) to identify where new features needed to be documented.
+### May 26, 2026
+6248 2:21p 🔵 CalcTokens multi-client architecture and Antigravity macOS process connection system
+S3126 CalcTokens项目代码优化调查：应用流量统计功能改进，重点关注应用命名展示混乱问题和macOS直连应用功能有效性验证 (May 26 at 2:22 PM)
+### May 27, 2026
+6300 11:56a 🔵 MCP codex_apps authentication token invalidated
 
-**Learned**: CalcTokens v0.9.0 addresses critical Antigravity CLI v1.0.1+ compatibility issue where `GetAllCascadeTrajectories` gRPC API returned empty results. Solution implemented file-based session discovery from `~/.gemini/antigravity-cli/conversations/*.pb` with API adaptation layer for new response format. Three-tier performance optimization delivered: P0 eliminated table rebuilds via persistent `daily_summary` structure and `--no-sync` flag achieving 700x speedup (5.7s → 5ms); P1 merged N lsof calls into one and parallelized heartbeat checks; P2 replaced par_bridge with collect-then-parallelize and converted pricing cache to FIFO eviction.
-
-**Completed**: Updated README.md with `--no-sync` flag documentation in Features, Usage examples, and Reporting Logic sections. Committed and pushed changes to main branch (commit 16d4406). Updated Obsidian CalcTokens.md with comprehensive v0.9.0 section documenting problem root cause, fix approach, and all three performance optimization tiers. Added v0.9.0 entry to version history table with condensed summary of changes.
-
-**Next Steps**: Documentation updates complete. Primary session appears to have finished v0.9.0 documentation work, with all three files (README.md, CHANGELOG.md implied, and Obsidian CalcTokens.md) updated and README changes published to GitHub.
-
-
-Access 225k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 235k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

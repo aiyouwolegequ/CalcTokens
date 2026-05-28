@@ -299,6 +299,8 @@ fn save_record(conn: &Connection, range: &str, total_in: i64, total_out: i64,
 // Dedup by message_key so repeated runs only add new messages.
 
 fn sync_messages(conn: &Connection, rt: &Runtime, clients: Option<Vec<String>>) -> Result<usize, Box<dyn std::error::Error>> {
+    let has_agy = antigravity::has_active_agy_process();
+
     // ── Antigravity auto sync hook ──
     if let Err(e) = antigravity::sync_antigravity() {
         eprintln!("Warning: Antigravity sync failed: {}", e);
@@ -357,7 +359,11 @@ fn sync_messages(conn: &Connection, rt: &Runtime, clients: Option<Vec<String>>) 
     let after_count: usize = conn.query_row(
         "SELECT COUNT(*) FROM messages", [], |r| r.get(0),
     )?;
-    Ok(after_count.saturating_sub(before_count))
+    let inserted = after_count.saturating_sub(before_count);
+    if inserted == 0 && has_agy {
+        eprintln!("Warning: agy process is running, but 0 new messages were synced. If you recently used agy, this might indicate a sync issue.");
+    }
+    Ok(inserted)
 }
 
 /// Refresh daily_summary from raw messages, grouped by canonical_id.

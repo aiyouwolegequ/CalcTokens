@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.9.6] - 2026-05-28
+
+### Added
+- **Agy Health Check Alert**: Add warning message to stderr when the `agy` daemon process is detected running, but 0 new messages are synced (improving visibility for compatibility breakages during agy updates).
+- **Agy Probing Diagnostics**: Added stderr warning alerts when ports fail to probe or `GetAllCascadeTrajectories` returns HTTP/JSON errors.
+
 ## [0.9.5] - 2026-05-28
 
 ### Fixed

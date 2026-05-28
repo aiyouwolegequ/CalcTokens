@@ -575,6 +575,7 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
     let mut active_endpoints = Vec::new();
     let mut connections = Vec::new();
 
+    let has_candidates = !candidates.is_empty();
     let mut probe_handles = Vec::new();
     for cand in candidates {
         let ports = get_listening_ports(cand.pid, &all_ports);
@@ -604,6 +605,9 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
     }
     
     if active_endpoints.is_empty() {
+        if has_candidates {
+            eprintln!("Warning: agy/Antigravity process is running, but no active ports could be probed. Heartbeat verification failed.");
+        }
         return Ok(());
     }
     
@@ -630,21 +634,31 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
         let url = format!("{}://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", protocol, port);
         let res = match client.post(&url).headers(headers.clone()).json(&json!({})).send() {
             Ok(r) => r,
-            Err(_) => continue,
+            Err(e) => {
+                eprintln!("Warning: Failed to connect to GetAllCascadeTrajectories on port {}: {}", port, e);
+                continue;
+            }
         };
         
         if !res.status().is_success() {
+            eprintln!("Warning: GetAllCascadeTrajectories returned HTTP status {} on port {}", res.status(), port);
             continue;
         }
         
         let data: Value = match res.json() {
             Ok(d) => d,
-            Err(_) => continue,
+            Err(e) => {
+                eprintln!("Warning: Failed to parse GetAllCascadeTrajectories JSON response on port {}: {}", port, e);
+                continue;
+            }
         };
         
         let trajectories = match data.get("trajectorySummaries").and_then(|v| v.as_object()) {
             Some(obj) => obj,
-            None => continue,
+            None => {
+                eprintln!("Warning: GetAllCascadeTrajectories response is missing 'trajectorySummaries' key on port {}", port);
+                continue;
+            }
         };
         
         for (session_id, summary) in trajectories {
@@ -759,4 +773,8 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
     }
     
     Ok(())
+}
+
+pub fn has_active_agy_process() -> bool {
+    !get_active_processes().is_empty()
 }

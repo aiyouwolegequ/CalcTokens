@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.9.5] - 2026-05-28
+
+### Fixed
+- **Antigravity Sync Timeout**: Increased the request connection/handshake timeout in `sync_antigravity()` from 500ms to 2000ms to prevent silent sync failures on slower/busy environments under load.
+
 ## [0.9.4] - 2026-05-26
 
 ### Optimized

@@ -569,7 +569,7 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = Client::builder()
         .danger_accept_invalid_certs(true)
-        .timeout(std::time::Duration::from_millis(500))
+        .timeout(std::time::Duration::from_millis(2000))
         .build()?;
 
     let mut active_endpoints = Vec::new();

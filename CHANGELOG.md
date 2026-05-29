@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.1] - 2026-05-29
+
+### Fixed
+- **M18 Placeholder Resolution**: Added alias mappings for `MODEL_PLACEHOLDER_M18` to correctly resolve to `Gemini-3.5-Flash` in `calctokens-core`.
+- **GPT-OSS Display Name**: Renamed `GPT-OSS-120B-Medium` to `GPT-OSS-120B` in `MODEL_ALIASES` and `PRETTY_NAMES` for cleaner output alignment.
+
 ## [1.0.0] - 2026-05-29
 
 ### Added

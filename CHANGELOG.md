@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.9.7] - 2026-05-29
+
+### Fixed
+- **Kimi Model Aliasing**: Added missing `kimi-k2.6` identity mapping in `MODEL_ALIASES`, preventing incorrect fallback to `kimi-k2.5` during pricing lookup and token aggregation.
+
 ## [0.9.6] - 2026-05-28
 
 ### Added

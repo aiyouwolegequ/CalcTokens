@@ -92,6 +92,7 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     // Kimi models
     m.insert("kimi-for-coding", "kimi-k2.5");
     m.insert("kimi-k2.5", "kimi-k2.5");
+    m.insert("kimi-k2.6", "kimi-k2.6");
     m.insert("kimi-k2-thinking", "kimi-k2-thinking");
 
     // MiniMax models

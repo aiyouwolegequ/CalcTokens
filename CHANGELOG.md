@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.2] - 2026-05-29
+
+### Fixed
+- **GPT-OSS Mapping**: Ensured `gpt-oss-120b-medium` is correctly resolved and displayed as `GPT-OSS-120B` even when provided as a raw model ID.
+
 ## [1.0.1] - 2026-05-29
 
 ### Fixed

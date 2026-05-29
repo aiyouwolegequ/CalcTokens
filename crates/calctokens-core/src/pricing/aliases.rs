@@ -55,6 +55,7 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("claude-opus-4.8", "claude-opus-4-8");
 
     m.insert("gpt-oss-120b", "gpt-oss-120b");
+    m.insert("gpt-oss-120b-medium", "gpt-oss-120b");
     m.insert("model_openai_gpt_oss_120b_medium", "gpt-oss-120b");
 
     m.insert("claude-haiku-4-6", "claude-haiku-4-6");
@@ -192,6 +193,7 @@ static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("claude-opus-4.8", "Claude-Opus-4.8");
 
     m.insert("gpt-oss-120b", "GPT-OSS-120B");
+    m.insert("gpt-oss-120b-medium", "GPT-OSS-120B");
     m.insert("model_openai_gpt_oss_120b_medium", "GPT-OSS-120B");
 
     // DeepSeek models

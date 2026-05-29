@@ -20,6 +20,7 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("gemini-3-flash", "gemini-3.5-flash");
     m.insert("gemini-3-flash-c", "gemini-3.5-flash");
     m.insert("model_placeholder_m47", "gemini-3.5-flash");
+    m.insert("model_placeholder_m132", "gemini-3.5-flash");
     m.insert("gemini-3.5-flash", "gemini-3.5-flash");
 
     m.insert("gemini-3.1-pro-high", "gemini-3.1-pro");
@@ -156,6 +157,7 @@ static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("gemini-3-flash", "Gemini-3.5-Flash");
     m.insert("gemini-3-flash-c", "Gemini-3.5-Flash");
     m.insert("model_placeholder_m47", "Gemini-3.5-Flash");
+    m.insert("model_placeholder_m132", "Gemini-3.5-Flash");
 
     m.insert("gemini-3.1-pro-high", "Gemini-3.1-Pro（High）");
     m.insert("gemini-3-pro-high", "Gemini-3.1-Pro（High）");
@@ -286,6 +288,10 @@ mod tests {
         assert_eq!(
             resolve_pretty_name("model_placeholder_m37"),
             Some("Gemini-3.1-Pro（Low）")
+        );
+        assert_eq!(
+            resolve_pretty_name("MODEL_PLACEHOLDER_M132"),
+            Some("Gemini-3.5-Flash")
         );
         assert_eq!(
             resolve_pretty_name("MODEL_OPENAI_GPT_OSS_120B_MEDIUM"),

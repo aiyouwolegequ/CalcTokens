@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.9.9] - 2026-05-29
+
+### Added
+- **M132 Placeholder Resolution**: Added alias mappings for `MODEL_PLACEHOLDER_M132` to correctly resolve to `Gemini-3.5-Flash` in `calctokens-core`, fixing an issue where raw placeholder strings appeared in the aggregated usage logs.
+
 ## [0.9.8] - 2026-05-29
 
 ### Added

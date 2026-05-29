@@ -57,3 +57,6 @@ Recent history uses concise conventional-style messages such as `fix: add missin
 
 6. Upgrade on remote hosts
    - On machines that installed via Homebrew, run `brew update && brew upgrade calctokens` to fetch the new version.
+
+7. Update project documentation
+   - Update the Obsidian project doc at `/Users/felix/Library/Mobile Documents/iCloud~md~obsidian/Documents/Darchrow-Obsidian/Vibe_Coding/Project/CalcTokens.md` with the release notes. Follow the existing version-section format (date, added/fixed/changed subsections) and keep the document in sync with `CHANGELOG.md`.

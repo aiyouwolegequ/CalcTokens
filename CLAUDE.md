@@ -29,3 +29,31 @@ Recent history uses concise conventional-style messages such as `fix: add missin
 ## Agent-Specific Instructions
 
 `CLAUDE.md` is the source of truth. `AGENTS.md` must be a symlink to `CLAUDE.md`; do not edit `AGENTS.md` directly. If guide rules change, update `CLAUDE.md` first and recreate the symlink if needed.
+
+## Release Workflow
+
+1. Bump version
+   - Update the version in `Cargo.toml` (root and workspace members as needed).
+   - Add a new section to `CHANGELOG.md` summarizing the release.
+   - Commit with a conventional-style message such as `chore: release vX.Y.Z`.
+
+2. Build release binaries locally
+   - Run `cargo build --release` to produce the optimized binary at `target/release/calctokens`.
+   - Verify the binary works: `./target/release/calctokens --version`.
+
+3. Tag and push
+   - Create an annotated tag: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`.
+   - Push the tag to trigger CI: `git push origin vX.Y.Z`.
+
+4. GitHub Actions automated release
+   - The repository has a GitHub Actions workflow that builds release artifacts for supported targets when a `v*` tag is pushed.
+   - Wait for the workflow to complete and publish the release on GitHub.
+
+5. Update the Homebrew formula
+   - In the `homebrew-calctokens` repository, edit `Formula/calctokens.rb`.
+   - Update the `version` field to the new tag.
+   - Update the `sha256` for the macOS artifact (download the release tarball or use `shasum -a 256 <file>`).
+   - Commit and push the formula change.
+
+6. Upgrade on remote hosts
+   - On machines that installed via Homebrew, run `brew update && brew upgrade calctokens` to fetch the new version.

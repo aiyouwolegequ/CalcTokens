@@ -14,14 +14,14 @@ jobs:
       matrix:
         include:
           - runs-on: ubuntu-latest
-            binary: calctokens
+            binary: calctokens-linux-x86_64
           - runs-on: macos-latest
             binary: calctokens-macos-arm64
     runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@v4
       - name: Build Linux
-        if: matrix.binary == 'calctokens'
+        if: matrix.binary == 'calctokens-linux-x86_64'
         run: cargo clean --release && cargo build --release
       - name: Build macOS
         if: matrix.binary == 'calctokens-macos-arm64'
@@ -30,8 +30,8 @@ jobs:
           cargo build --release --target aarch64-apple-darwin
       - name: Prepare binary
         run: |
-          if [ "${{ matrix.binary }}" = "calctokens" ]; then
-            cp target/release/calctokens calctokens
+          if [ "${{ matrix.binary }}" = "calctokens-linux-x86_64" ]; then
+            cp target/release/calctokens calctokens-linux-x86_64
           else
             cp target/aarch64-apple-darwin/release/calctokens calctokens-macos-arm64
           fi

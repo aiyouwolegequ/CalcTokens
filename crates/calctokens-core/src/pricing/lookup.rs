@@ -963,10 +963,15 @@ fn normalize_model_name(model_id: &str) -> Option<String> {
     let lower = model_id.to_lowercase();
 
     if lower.contains("opus") {
-        if contains_delimited_fragment(&lower, "4.7") || contains_delimited_fragment(&lower, "4-7")
+        if contains_delimited_fragment(&lower, "4.8") || contains_delimited_fragment(&lower, "4-8")
+        {
+            return Some("claude-opus-4-8".into());
+        } else if contains_delimited_fragment(&lower, "4.7")
+            || contains_delimited_fragment(&lower, "4-7")
         {
             return Some("claude-opus-4-7".into());
-        } else if contains_delimited_fragment(&lower, "4.6") || contains_delimited_fragment(&lower, "4-6")
+        } else if contains_delimited_fragment(&lower, "4.6")
+            || contains_delimited_fragment(&lower, "4-6")
         {
             return Some("claude-opus-4-6".into());
         } else if contains_delimited_fragment(&lower, "4.5")
@@ -978,7 +983,19 @@ fn normalize_model_name(model_id: &str) -> Option<String> {
         }
     }
     if lower.contains("sonnet") {
-        if contains_delimited_fragment(&lower, "4.5") || contains_delimited_fragment(&lower, "4-5")
+        if contains_delimited_fragment(&lower, "4.8") || contains_delimited_fragment(&lower, "4-8")
+        {
+            return Some("claude-sonnet-4-8".into());
+        } else if contains_delimited_fragment(&lower, "4.7")
+            || contains_delimited_fragment(&lower, "4-7")
+        {
+            return Some("claude-sonnet-4-7".into());
+        } else if contains_delimited_fragment(&lower, "4.6")
+            || contains_delimited_fragment(&lower, "4-6")
+        {
+            return Some("claude-sonnet-4-6".into());
+        } else if contains_delimited_fragment(&lower, "4.5")
+            || contains_delimited_fragment(&lower, "4-5")
         {
             return Some("claude-sonnet-4-5".into());
         } else if contains_delimited_fragment(&lower, "4") {

@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.8] - 2026-05-29
+
+### Added
+- **Claude Opus/Sonnet 4.8 Support**: Added `claude-opus-4-8` and `claude-sonnet-4-8` identity mappings, pretty names, and `normalize_model_name` resolution to prevent incorrect fallback to older versions.
+- **Claude Haiku 4.5 Pretty Names**: Added missing `MODEL_ALIASES` and `PRETTY_NAMES` entries for `claude-haiku-4-5` and its date-suffixed variant, ensuring consistent display as `Claude-Haiku-4.5`.
+
+### Changed
+- **Pricing Source**: CalcTokens now loads pricing data exclusively from OpenRouter, removing the LiteLLM fetch path. This simplifies the pricing pipeline and avoids stale or subscription-based ($0.00) entries from LiteLLM.
+
+### Fixed
+- **Claude Sonnet 4.6 Misclassification**: `normalize_model_name` now correctly resolves `claude-sonnet-4-6` instead of falling back to `claude-sonnet-4`.
+- **GPT-OSS Pretty Name Format**: Changed display name from `GPT-OSS-120B（Medium）` (full-width brackets) to `GPT-OSS-120B-Medium` for consistency with other model names.
+
 ## [0.9.7] - 2026-05-29
 
 ### Fixed

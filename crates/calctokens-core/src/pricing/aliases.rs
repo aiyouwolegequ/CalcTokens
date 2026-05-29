@@ -37,6 +37,9 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("claude-sonnet-4-6", "claude-sonnet-4-6");
     m.insert("claude-sonnet-4.6", "claude-sonnet-4-6");
 
+    m.insert("claude-sonnet-4-8", "claude-sonnet-4-8");
+    m.insert("claude-sonnet-4.8", "claude-sonnet-4-8");
+
     m.insert("claude-opus-4-6-thinking", "claude-opus-4-6");
     m.insert("claude-opus-4.6-thinking", "claude-opus-4-6");
     m.insert("model_placeholder_m26", "claude-opus-4-6");
@@ -46,11 +49,19 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("claude-opus-4-7", "claude-opus-4-7");
     m.insert("claude-opus-4.7", "claude-opus-4-7");
 
+    m.insert("claude-opus-4-8", "claude-opus-4-8");
+    m.insert("claude-opus-4.8", "claude-opus-4-8");
+
     m.insert("gpt-oss-120b-medium", "gpt-oss-120b-medium");
     m.insert("model_openai_gpt_oss_120b_medium", "gpt-oss-120b-medium");
 
     m.insert("claude-haiku-4-6", "claude-haiku-4-6");
     m.insert("claude-haiku-4.6", "claude-haiku-4-6");
+
+    // Claude Haiku 4.5 variants
+    m.insert("claude-haiku-4-5", "claude-haiku-4-5");
+    m.insert("claude-haiku-4.5", "claude-haiku-4-5");
+    m.insert("claude-haiku-4-5-20251001", "claude-haiku-4-5");
 
     // DeepSeek models
     m.insert("deepseek-v4-pro", "deepseek-v4-pro");
@@ -161,6 +172,9 @@ static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("claude-sonnet-4-6", "Claude-Sonnet-4.6");
     m.insert("claude-sonnet-4.6", "Claude-Sonnet-4.6");
 
+    m.insert("claude-sonnet-4-8", "Claude-Sonnet-4.8");
+    m.insert("claude-sonnet-4.8", "Claude-Sonnet-4.8");
+
     m.insert("claude-opus-4-6-thinking", "Claude-Opus-4.6");
     m.insert("claude-opus-4.6-thinking", "Claude-Opus-4.6");
     m.insert("model_placeholder_m26", "Claude-Opus-4.6");
@@ -170,8 +184,11 @@ static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("claude-opus-4-7", "Claude-Opus-4.7");
     m.insert("claude-opus-4.7", "Claude-Opus-4.7");
 
-    m.insert("gpt-oss-120b-medium", "GPT-OSS-120B（Medium）");
-    m.insert("model_openai_gpt_oss_120b_medium", "GPT-OSS-120B（Medium）");
+    m.insert("claude-opus-4-8", "Claude-Opus-4.8");
+    m.insert("claude-opus-4.8", "Claude-Opus-4.8");
+
+    m.insert("gpt-oss-120b-medium", "GPT-OSS-120B-Medium");
+    m.insert("model_openai_gpt_oss_120b_medium", "GPT-OSS-120B-Medium");
 
     // DeepSeek models
     m.insert("deepseek-v4-pro", "DeepSeek-V4-Pro");
@@ -180,6 +197,11 @@ static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("deepseek-v3-0324", "DeepSeek-V3-0324");
     m.insert("deepseek-chat", "DeepSeek-Chat");
     m.insert("deepseek-coder", "DeepSeek-Coder");
+
+    // Claude Haiku 4.5
+    m.insert("claude-haiku-4-5", "Claude-Haiku-4.5");
+    m.insert("claude-haiku-4.5", "Claude-Haiku-4.5");
+    m.insert("claude-haiku-4-5-20251001", "Claude-Haiku-4.5");
 
     // Claude Sonnet 4.5
     m.insert("claude-sonnet-4-5", "Claude-Sonnet-4.5");
@@ -267,7 +289,7 @@ mod tests {
         );
         assert_eq!(
             resolve_pretty_name("MODEL_OPENAI_GPT_OSS_120B_MEDIUM"),
-            Some("GPT-OSS-120B（Medium）")
+            Some("GPT-OSS-120B-Medium")
         );
         assert_eq!(
             resolve_pretty_name("gemini-3-flash-c"),
@@ -289,30 +311,18 @@ mod tests {
             resolve_pretty_name("deepseek-v4-pro"),
             Some("DeepSeek-V4-Pro")
         );
-        assert_eq!(
-            resolve_pretty_name("gpt-5.5"),
-            Some("GPT-5.5")
-        );
+        assert_eq!(resolve_pretty_name("gpt-5.5"), Some("GPT-5.5"));
         assert_eq!(
             resolve_pretty_name("claude-sonnet-4-5-20250929"),
             Some("Claude-Sonnet-4.5")
         );
-        assert_eq!(
-            resolve_pretty_name("gpt-5.4-mini"),
-            Some("GPT-5.4-Mini")
-        );
-        assert_eq!(
-            resolve_pretty_name("gpt-5.3-codex"),
-            Some("GPT-5.3-Codex")
-        );
+        assert_eq!(resolve_pretty_name("gpt-5.4-mini"), Some("GPT-5.4-Mini"));
+        assert_eq!(resolve_pretty_name("gpt-5.3-codex"), Some("GPT-5.3-Codex"));
         assert_eq!(
             resolve_pretty_name("deepseek-v4-flash"),
             Some("DeepSeek-V4-Flash")
         );
-        assert_eq!(
-            resolve_pretty_name("kimi-for-coding"),
-            Some("Kimi-K2.5")
-        );
+        assert_eq!(resolve_pretty_name("kimi-for-coding"), Some("Kimi-K2.5"));
         assert_eq!(
             resolve_pretty_name("MiniMax-M2.7-highspeed"),
             Some("MiniMax-M2.7-Highspeed")
@@ -333,29 +343,14 @@ mod tests {
 
     #[test]
     fn resolves_aliases_to_canonical() {
-        assert_eq!(
-            resolve_alias("gemini-3-flash"),
-            Some("gemini-3.5-flash")
-        );
-        assert_eq!(
-            resolve_alias("Gemini-3.5-Flash"),
-            Some("gemini-3.5-flash")
-        );
+        assert_eq!(resolve_alias("gemini-3-flash"), Some("gemini-3.5-flash"));
+        assert_eq!(resolve_alias("Gemini-3.5-Flash"), Some("gemini-3.5-flash"));
         assert_eq!(
             resolve_alias("Claude-Opus-4.6（Thinking）"),
             Some("claude-opus-4-6")
         );
-        assert_eq!(
-            resolve_alias("Claude-Opus-4.7"),
-            Some("claude-opus-4-7")
-        );
-        assert_eq!(
-            resolve_alias("DeepSeek-v4-Pro"),
-            Some("deepseek-v4-pro")
-        );
-        assert_eq!(
-            resolve_alias("GPT-5.5"),
-            Some("gpt-5.5")
-        );
+        assert_eq!(resolve_alias("Claude-Opus-4.7"), Some("claude-opus-4-7"));
+        assert_eq!(resolve_alias("DeepSeek-v4-Pro"), Some("deepseek-v4-pro"));
+        assert_eq!(resolve_alias("GPT-5.5"), Some("gpt-5.5"));
     }
 }

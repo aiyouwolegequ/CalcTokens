@@ -15,12 +15,6 @@ pub use litellm::ModelPricing;
 
 static PRICING_SERVICE: OnceCell<Arc<PricingService>> = OnceCell::const_new();
 
-// @keep: documents non-obvious filtering behavior — without this, the next person
-// will wonder why github_copilot entries disappear from the pricing data.
-/// Provider prefixes in LiteLLM data that use subscription-based pricing ($0.00)
-/// and should be excluded from pay-per-token cost estimation.
-const EXCLUDED_LITELLM_PREFIXES: &[&str] = &["github_copilot/"];
-
 pub struct PricingService {
     lookup: PricingLookup,
 }
@@ -37,22 +31,6 @@ impl PricingService {
                 Self::build_cursor_overrides(),
             ),
         }
-    }
-
-    // @keep: the retain logic is non-trivial (lowercase + prefix match); this doc
-    // explains *why* these entries are dropped, not just *what* the code does.
-    /// Filter out LiteLLM entries from subscription-based providers (e.g. github_copilot/)
-    /// whose $0.00 pricing is meaningless for per-token cost estimation.
-    fn filter_litellm_data(
-        mut data: HashMap<String, ModelPricing>,
-    ) -> HashMap<String, ModelPricing> {
-        data.retain(|key, _| {
-            let lower = key.to_lowercase();
-            !EXCLUDED_LITELLM_PREFIXES
-                .iter()
-                .any(|prefix| lower.starts_with(prefix))
-        });
-        data
     }
 
     // @keep: Cursor-sourced pricing for models not yet in LiteLLM/OpenRouter.
@@ -100,34 +78,18 @@ impl PricingService {
     }
 
     async fn fetch_inner() -> Result<Self, String> {
-        let (litellm_result, openrouter_data) =
-            tokio::join!(litellm::fetch(), openrouter::fetch_all_mapped());
-
-        let litellm_data = litellm_result.map_err(|e| e.to_string())?;
-        let litellm_data = Self::filter_litellm_data(litellm_data);
-
-        Ok(Self::new(litellm_data, openrouter_data))
+        let openrouter_data = openrouter::fetch_all_mapped().await;
+        Ok(Self::new(HashMap::new(), openrouter_data))
     }
 
     fn from_cached_datasets(
-        litellm_data: Option<HashMap<String, ModelPricing>>,
         openrouter_data: Option<HashMap<String, ModelPricing>>,
     ) -> Option<Self> {
-        if litellm_data.is_none() && openrouter_data.is_none() {
-            return None;
-        }
-
-        Some(Self::new(
-            Self::filter_litellm_data(litellm_data.unwrap_or_default()),
-            openrouter_data.unwrap_or_default(),
-        ))
+        openrouter_data.map(|data| Self::new(HashMap::new(), data))
     }
 
     pub fn load_cached_any_age() -> Option<Self> {
-        Self::from_cached_datasets(
-            litellm::load_cached_any_age(),
-            openrouter::load_cached_any_age(),
-        )
+        Self::from_cached_datasets(openrouter::load_cached_any_age())
     }
 
     pub async fn get_or_init() -> Result<Arc<PricingService>, String> {
@@ -190,30 +152,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_filter_excludes_github_copilot() {
-        let mut data = HashMap::new();
-        data.insert(
-            "github_copilot/gpt-5.3-codex".into(),
-            ModelPricing::default(),
-        );
-        data.insert("github_copilot/gpt-4o".into(), ModelPricing::default());
-        data.insert(
-            "gpt-5.2".into(),
-            ModelPricing {
-                input_cost_per_token: Some(0.00000175),
-                ..Default::default()
-            },
-        );
-        data.insert("openai/gpt-5.2".into(), ModelPricing::default());
-
-        let filtered = PricingService::filter_litellm_data(data);
-        assert!(!filtered.contains_key("github_copilot/gpt-5.3-codex"));
-        assert!(!filtered.contains_key("github_copilot/gpt-4o"));
-        assert!(filtered.contains_key("gpt-5.2"));
-        assert!(filtered.contains_key("openai/gpt-5.2"));
-    }
-
-    #[test]
     fn test_cursor_returns_pricing_when_not_in_upstream() {
         let service = PricingService::new(HashMap::new(), HashMap::new());
         let result = service.lookup_with_source("gpt-5.3-codex", None).unwrap();
@@ -221,23 +159,6 @@ mod tests {
         assert_eq!(result.pricing.input_cost_per_token, Some(0.00000175));
         assert_eq!(result.pricing.output_cost_per_token, Some(0.000014));
         assert_eq!(result.pricing.cache_read_input_token_cost, Some(1.75e-7));
-    }
-
-    #[test]
-    fn test_cursor_yields_to_litellm_exact() {
-        let mut litellm = HashMap::new();
-        litellm.insert(
-            "gpt-5.3-codex".into(),
-            ModelPricing {
-                input_cost_per_token: Some(0.002),
-                output_cost_per_token: Some(0.016),
-                ..Default::default()
-            },
-        );
-        let service = PricingService::new(litellm, HashMap::new());
-        let result = service.lookup_with_source("gpt-5.3-codex", None).unwrap();
-        assert_eq!(result.source, "LiteLLM");
-        assert_eq!(result.pricing.input_cost_per_token, Some(0.002));
     }
 
     #[test]
@@ -472,35 +393,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_cached_datasets_returns_none_when_both_sources_missing() {
-        assert!(PricingService::from_cached_datasets(None, None).is_none());
-    }
-
-    #[test]
-    fn test_from_cached_datasets_filters_subscription_only_litellm_entries() {
-        let mut litellm = HashMap::new();
-        litellm.insert(
-            "github_copilot/gpt-5.3-codex".into(),
-            ModelPricing {
-                input_cost_per_token: Some(0.0),
-                ..Default::default()
-            },
-        );
-        litellm.insert(
-            "gpt-5.2".into(),
-            ModelPricing {
-                input_cost_per_token: Some(0.00000175),
-                ..Default::default()
-            },
-        );
-
-        let service = PricingService::from_cached_datasets(Some(litellm), None).unwrap();
-
-        assert!(service
-            .lookup_with_source("github_copilot/gpt-5.3-codex", Some("litellm"))
-            .is_none());
-        assert!(service
-            .lookup_with_source("gpt-5.2", Some("litellm"))
-            .is_some());
+    fn test_from_cached_datasets_returns_none_when_source_missing() {
+        assert!(PricingService::from_cached_datasets(None).is_none());
     }
 }

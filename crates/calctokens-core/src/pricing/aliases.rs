@@ -21,6 +21,7 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("gemini-3-flash-c", "gemini-3.5-flash");
     m.insert("model_placeholder_m47", "gemini-3.5-flash");
     m.insert("model_placeholder_m132", "gemini-3.5-flash");
+    m.insert("model_placeholder_m18", "gemini-3.5-flash");
     m.insert("gemini-3.5-flash", "gemini-3.5-flash");
 
     m.insert("gemini-3.1-pro-high", "gemini-3.1-pro");
@@ -53,8 +54,8 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("claude-opus-4-8", "claude-opus-4-8");
     m.insert("claude-opus-4.8", "claude-opus-4-8");
 
-    m.insert("gpt-oss-120b-medium", "gpt-oss-120b-medium");
-    m.insert("model_openai_gpt_oss_120b_medium", "gpt-oss-120b-medium");
+    m.insert("gpt-oss-120b", "gpt-oss-120b");
+    m.insert("model_openai_gpt_oss_120b_medium", "gpt-oss-120b");
 
     m.insert("claude-haiku-4-6", "claude-haiku-4-6");
     m.insert("claude-haiku-4.6", "claude-haiku-4-6");
@@ -133,7 +134,7 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("claude-sonnet-4.6（thinking）", "claude-sonnet-4-6");
     m.insert("claude-opus-4.6（thinking）", "claude-opus-4-6");
     m.insert("claude-opus-4.7", "claude-opus-4-7");
-    m.insert("gpt-oss-120b（medium）", "gpt-oss-120b-medium");
+    m.insert("gpt-oss-120b（medium）", "gpt-oss-120b");
 
     // Map pretty display names back to canonical pricing models (half-width brackets)
     m.insert("gemini-3.5-flash(high)", "gemini-3.5-flash");
@@ -142,7 +143,7 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("gemini-3.1-pro(low)", "gemini-3.1-pro");
     m.insert("claude-sonnet-4.6(thinking)", "claude-sonnet-4-6");
     m.insert("claude-opus-4.6(thinking)", "claude-opus-4-6");
-    m.insert("gpt-oss-120b(medium)", "gpt-oss-120b-medium");
+    m.insert("gpt-oss-120b(medium)", "gpt-oss-120b");
 
     // Synthetic model variants (only where resolver needs help)
     m.insert("kimi-k2.5-nvfp4", "kimi-k2.5"); // Quantization variant → base model pricing
@@ -158,6 +159,7 @@ static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("gemini-3-flash-c", "Gemini-3.5-Flash");
     m.insert("model_placeholder_m47", "Gemini-3.5-Flash");
     m.insert("model_placeholder_m132", "Gemini-3.5-Flash");
+    m.insert("model_placeholder_m18", "Gemini-3.5-Flash");
 
     m.insert("gemini-3.1-pro-high", "Gemini-3.1-Pro（High）");
     m.insert("gemini-3-pro-high", "Gemini-3.1-Pro（High）");
@@ -189,8 +191,8 @@ static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("claude-opus-4-8", "Claude-Opus-4.8");
     m.insert("claude-opus-4.8", "Claude-Opus-4.8");
 
-    m.insert("gpt-oss-120b-medium", "GPT-OSS-120B-Medium");
-    m.insert("model_openai_gpt_oss_120b_medium", "GPT-OSS-120B-Medium");
+    m.insert("gpt-oss-120b", "GPT-OSS-120B");
+    m.insert("model_openai_gpt_oss_120b_medium", "GPT-OSS-120B");
 
     // DeepSeek models
     m.insert("deepseek-v4-pro", "DeepSeek-V4-Pro");
@@ -295,7 +297,7 @@ mod tests {
         );
         assert_eq!(
             resolve_pretty_name("MODEL_OPENAI_GPT_OSS_120B_MEDIUM"),
-            Some("GPT-OSS-120B-Medium")
+            Some("GPT-OSS-120B")
         );
         assert_eq!(
             resolve_pretty_name("gemini-3-flash-c"),

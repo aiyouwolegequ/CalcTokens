@@ -56,7 +56,20 @@ Recent history uses concise conventional-style messages such as `fix: add missin
    - Commit and push the formula change.
 
 6. Upgrade on remote hosts
-   - On machines that installed via Homebrew, run `brew update && brew upgrade calctokens` to fetch the new version.
+   - Local macOS (this machine) — run directly:
+     ```bash
+     brew update && brew upgrade calctokens
+     ```
+   - MacMini (SSH: `joey@163.7.9.109:6000`) — run:
+     ```bash
+     export PATH=/opt/homebrew/bin:$PATH
+     brew update && brew upgrade calctokens
+     ```
+   - Jakarta (SSH: `darchrow@163.7.9.109:22223`) — run:
+     ```bash
+     export PATH=/home/linuxbrew/.linuxbrew/bin:$PATH
+     brew update && brew upgrade calctokens
+     ```
 
 7. Update project documentation
    - Update the Obsidian project doc at `/Users/felix/Library/Mobile Documents/iCloud~md~obsidian/Documents/Darchrow-Obsidian/Vibe_Coding/Project/CalcTokens.md` with the release notes. Follow the existing version-section format (date, added/fixed/changed subsections) and keep the document in sync with `CHANGELOG.md`.

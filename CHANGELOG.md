@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.0] - 2026-05-29
+
+### Added
+- **Top X Usage Report**: Added a new "TOP X USAGE" table below the existing "TOP X COST" section. This new table summarizes the highest-volume models sorted by their combined total tokens (input + output + cache read/write) and calculates their share against the total volume, giving clearer visibility into raw consumption alongside financial cost.
+
 ## [0.9.9] - 2026-05-29
 
 ### Added

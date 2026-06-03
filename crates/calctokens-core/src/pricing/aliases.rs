@@ -117,7 +117,7 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("minimax-m2.5-free", "minimax-m2.5-free");
 
     // Doubao models
-    m.insert("doubao-seed-code", "doubao-seed-code");
+    m.insert("doubao-seed-code", "seed-1.6");
 
     // GLM models
     m.insert("z-ai/glm-5.1", "z-ai/glm-5.1");

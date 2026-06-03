@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.4] - 2026-06-04
+
+### Fixed
+- **OpenRouter Pricing Sync**: Fixed a pricing sync bug where models from providers not explicitly mapped in `get_author_provider_name` (e.g. MiniMax, ByteDance/Doubao) were completely dropped during OpenRouter models fetch.
+- **Cache Read/Write Pricing**: Added support for parsing cache read and cache write prices directly from OpenRouter models list response.
+- **Doubao Seed Code Pricing**: Mapped `doubao-seed-code` to `seed-1.6` so it correctly resolves to OpenRouter's `bytedance-seed/seed-1.6` pricing.
+- **Aggregated Detail Table Filter**: Updated `calc-tokens.sh` to filter aggregated models by total tokens > 0 instead of cost > 0, ensuring models with missing pricing or zero cost still appear in the report.
+
 ## [1.0.3] - 2026-06-03
 
 ### Changed

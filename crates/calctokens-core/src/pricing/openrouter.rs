@@ -21,6 +21,10 @@ const MAX_ENDPOINTS_PER_MODEL: usize = 512;
 struct ModelListPricing {
     prompt: String,
     completion: String,
+    #[serde(default)]
+    input_cache_read: Option<String>,
+    #[serde(default)]
+    input_cache_write: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -173,8 +177,8 @@ fn collect_model_fallbacks(
                 Some(ModelPricing {
                     input_cost_per_token: Some(input),
                     output_cost_per_token: Some(output),
-                    cache_read_input_token_cost: None,
-                    cache_creation_input_token_cost: None,
+                    cache_read_input_token_cost: p.input_cache_read.as_ref().and_then(|s| parse_price(s)),
+                    cache_creation_input_token_cost: p.input_cache_write.as_ref().and_then(|s| parse_price(s)),
                     ..Default::default()
                 })
             });
@@ -350,15 +354,20 @@ pub async fn fetch_all_models() -> HashMap<String, ModelPricing> {
         return HashMap::new();
     }
 
-    let models_with_authors: Vec<(String, Option<ModelPricing>)> = models_with_fallback
-        .into_iter()
-        .filter(|(id, _)| get_author_provider_name(id).is_some())
-        .collect();
+    let mut result = HashMap::new();
+    let mut models_to_fetch = Vec::new();
+
+    for (model_id, fallback) in models_with_fallback {
+        if get_author_provider_name(&model_id).is_some() {
+            models_to_fetch.push((model_id, fallback));
+        } else if let Some(pricing) = fallback {
+            result.insert(model_id, pricing);
+        }
+    }
 
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS));
-    let mut result = HashMap::new();
 
-    for batch in models_with_authors.chunks(MAX_CONCURRENT_REQUESTS) {
+    for batch in models_to_fetch.chunks(MAX_CONCURRENT_REQUESTS) {
         let mut handles = Vec::with_capacity(batch.len());
 
         for (model_id, fallback) in batch {
@@ -439,6 +448,8 @@ mod tests {
                 pricing: Some(ModelListPricing {
                     prompt: "0.000001".to_string(),
                     completion: "0.000002".to_string(),
+                    input_cache_read: None,
+                    input_cache_write: None,
                 }),
             }],
         };

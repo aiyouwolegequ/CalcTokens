@@ -15,7 +15,7 @@ impl PathRoot {
             PathRoot::Home => home_dir.to_string(),
             PathRoot::XdgData => {
                 if use_env_roots {
-                    std::env::var("XDG_DATA_HOME")
+                    non_empty_env_var("XDG_DATA_HOME")
                         .unwrap_or_else(|_| format!("{}/.local/share", home_dir))
                 } else {
                     format!("{}/.local/share", home_dir)
@@ -30,7 +30,7 @@ impl PathRoot {
                     }
 
                     #[cfg(target_os = "linux")]
-                    if let Ok(xdg_config_home) = std::env::var("XDG_CONFIG_HOME") {
+                    if let Ok(xdg_config_home) = non_empty_env_var("XDG_CONFIG_HOME") {
                         return format!("{xdg_config_home}/calctokens");
                     }
                 }
@@ -56,7 +56,7 @@ impl PathRoot {
                 fallback_relative,
             } => {
                 if use_env_roots {
-                    std::env::var(var)
+                    non_empty_env_var(var)
                         .unwrap_or_else(|_| format!("{}/{}", home_dir, fallback_relative))
                 } else {
                     format!("{}/{}", home_dir, fallback_relative)
@@ -68,6 +68,16 @@ impl PathRoot {
     pub fn resolve(&self, home_dir: &str) -> String {
         self.resolve_with_env_strategy(home_dir, true)
     }
+}
+
+fn non_empty_env_var(var: &str) -> Result<String, std::env::VarError> {
+    std::env::var(var).and_then(|value| {
+        if value.trim().is_empty() {
+            Err(std::env::VarError::NotPresent)
+        } else {
+            Ok(value)
+        }
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -479,6 +489,18 @@ mod tests {
     }
 
     #[test]
+    fn test_path_root_xdg_data_falls_back_when_empty() {
+        let _guard = env_lock().lock().unwrap();
+        let previous = std::env::var("XDG_DATA_HOME").ok();
+        unsafe { std::env::set_var("XDG_DATA_HOME", "  ") };
+
+        let resolved = PathRoot::XdgData.resolve("/tmp/home");
+        assert_eq!(resolved, "/tmp/home/.local/share");
+
+        restore_env("XDG_DATA_HOME", previous);
+    }
+
+    #[test]
     fn test_path_root_xdg_data_ignores_env_when_disabled() {
         let _guard = env_lock().lock().unwrap();
         let previous = std::env::var("XDG_DATA_HOME").ok();
@@ -520,6 +542,24 @@ mod tests {
 
         let resolved = PathRoot::Config.resolve("/tmp/home");
         assert_eq!(resolved, "/tmp/xdg-config-home/calctokens");
+
+        restore_env("CALCTOKENS_CONFIG_DIR", previous_override);
+        restore_env("XDG_CONFIG_HOME", previous_xdg);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn test_path_root_config_ignores_empty_xdg_config_home() {
+        let _guard = env_lock().lock().unwrap();
+        let previous_override = std::env::var("CALCTOKENS_CONFIG_DIR").ok();
+        let previous_xdg = std::env::var("XDG_CONFIG_HOME").ok();
+        unsafe {
+            std::env::remove_var("CALCTOKENS_CONFIG_DIR");
+            std::env::set_var("XDG_CONFIG_HOME", " ");
+        }
+
+        let resolved = PathRoot::Config.resolve("/tmp/home");
+        assert_eq!(resolved, "/tmp/home/.config/calctokens");
 
         restore_env("CALCTOKENS_CONFIG_DIR", previous_override);
         restore_env("XDG_CONFIG_HOME", previous_xdg);
@@ -593,6 +633,23 @@ mod tests {
         let var = "CALCTOKENS_TEST_PATH_ROOT";
         let previous = std::env::var(var).ok();
         unsafe { std::env::remove_var(var) };
+
+        let root = PathRoot::EnvVar {
+            var,
+            fallback_relative: ".fallback",
+        };
+        let resolved = root.resolve("/tmp/home");
+        assert_eq!(resolved, "/tmp/home/.fallback");
+
+        restore_env(var, previous);
+    }
+
+    #[test]
+    fn test_path_root_env_var_falls_back_when_empty() {
+        let _guard = env_lock().lock().unwrap();
+        let var = "CALCTOKENS_TEST_PATH_ROOT";
+        let previous = std::env::var(var).ok();
+        unsafe { std::env::set_var(var, " ") };
 
         let root = PathRoot::EnvVar {
             var,
@@ -711,7 +768,9 @@ mod tests {
     #[test]
     fn test_zed_data_dir_path() {
         assert_eq!(
-            ClientId::Zed.data().resolve_path_with_env_strategy("/tmp/home", false),
+            ClientId::Zed
+                .data()
+                .resolve_path_with_env_strategy("/tmp/home", false),
             "/tmp/home/.local/share/zed/threads/threads.db"
         );
     }

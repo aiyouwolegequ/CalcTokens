@@ -10,6 +10,7 @@ fn canonicalize_provider_segment(segment: &str) -> Option<String> {
         "x_ai" | "xai" => "xai",
         "z_ai" | "zai" => "zai",
         "moonshot" | "moonshotai" => "moonshotai",
+        "minimax" | "minimax_ai" => "minimax",
         "meta" | "meta_llama" => "meta_llama",
         "azure" | "azure_ai" => "azure_ai",
         "anthropic" | "vertex" | "vertex_ai" => "anthropic",
@@ -150,6 +151,14 @@ pub fn inferred_provider_from_model(model: &str) -> Option<&'static str> {
         return Some("deepseek");
     }
 
+    if lower.contains("kimi") || lower.contains("moonshot") {
+        return Some("moonshotai");
+    }
+
+    if lower.contains("minimax") {
+        return Some("minimax");
+    }
+
     if lower.contains("mistral") || lower.contains("mixtral") {
         return Some("mistral");
     }
@@ -245,6 +254,14 @@ mod tests {
         assert_eq!(
             inferred_provider_from_model("deepseek-v3"),
             Some("deepseek")
+        );
+        assert_eq!(
+            inferred_provider_from_model("kimi-k2-thinking"),
+            Some("moonshotai")
+        );
+        assert_eq!(
+            inferred_provider_from_model("minimax-m2.7"),
+            Some("minimax")
         );
         assert_eq!(
             inferred_provider_from_model("mixtral-8x7b"),

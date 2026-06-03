@@ -151,14 +151,17 @@ pub fn parse_droid_file(path: &Path) -> Vec<UnifiedMessage> {
         None => return Vec::new(),
     };
 
-    // Calculate total tokens to check if any were used
-    let total_tokens = usage.input_tokens.unwrap_or(0)
-        + usage.output_tokens.unwrap_or(0)
-        + usage.cache_creation_tokens.unwrap_or(0)
-        + usage.cache_read_tokens.unwrap_or(0)
-        + usage.thinking_tokens.unwrap_or(0);
+    let has_token_usage = [
+        usage.input_tokens,
+        usage.output_tokens,
+        usage.cache_creation_tokens,
+        usage.cache_read_tokens,
+        usage.thinking_tokens,
+    ]
+    .into_iter()
+    .any(|tokens| tokens.unwrap_or(0) > 0);
 
-    if total_tokens == 0 {
+    if !has_token_usage {
         return Vec::new();
     }
 
@@ -314,5 +317,34 @@ mod tests {
         assert_eq!(usage.cache_creation_tokens, Some(89));
         assert_eq!(usage.cache_read_tokens, Some(12));
         assert_eq!(usage.thinking_tokens, Some(34));
+    }
+
+    #[test]
+    fn test_parse_droid_token_presence_does_not_overflow() {
+        let json = format!(
+            r#"{{
+            "model": "gpt-4o",
+            "providerLockTimestamp": "2024-12-26T12:00:00Z",
+            "tokenUsage": {{
+                "inputTokens": {},
+                "outputTokens": 1,
+                "cacheCreationTokens": {},
+                "cacheReadTokens": 0,
+                "thinkingTokens": 0
+            }}
+        }}"#,
+            i64::MAX,
+            i64::MAX
+        );
+
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("session.settings.json");
+        std::fs::write(&file_path, json).unwrap();
+
+        let messages = parse_droid_file(&file_path);
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].tokens.input, i64::MAX);
+        assert_eq!(messages[0].tokens.output, 1);
     }
 }

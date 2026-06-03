@@ -3,17 +3,17 @@
 //! Parses JSONL files from ~/.claude/projects/
 
 use super::utils::{
-    extract_i64, extract_string, file_modified_timestamp_ms, parse_timestamp_value,
-    read_file_or_none,
+    extract_i64, extract_string, file_modified_timestamp_ms, file_within_size_limit,
+    parse_timestamp_value, read_file_or_none, read_line_bytes_limited,
 };
 use super::{
     normalize_agent_name, normalize_workspace_key, workspace_label_from_key, UnifiedMessage,
 };
-use crate::TokenBreakdown;
+use crate::{provider_identity, TokenBreakdown};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 type ParentSubagentTypeCache = HashMap<PathBuf, HashMap<String, String>>;
@@ -117,6 +117,10 @@ fn resolve_subagent_name(
 /// Flat layout: `.../projects/<key>/agent-X.jsonl`
 ///   → parent at `.../projects/<key>/<session-id>.jsonl`
 fn find_parent_session_path(sidechain_path: &Path, parent_session_id: &str) -> Option<PathBuf> {
+    if !is_safe_parent_session_id(parent_session_id) {
+        return None;
+    }
+
     let parent_filename = format!("{}.jsonl", parent_session_id);
 
     // Nested layout: parent dir is 3 levels up (file → subagents → session-dir → project-dir)
@@ -140,6 +144,15 @@ fn find_parent_session_path(sidechain_path: &Path, parent_session_id: &str) -> O
     }
 
     None
+}
+
+fn is_safe_parent_session_id(parent_session_id: &str) -> bool {
+    let trimmed = parent_session_id.trim();
+    !trimmed.is_empty()
+        && trimmed.len() <= 200
+        && trimmed
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
 /// Scan a parent session JSONL to recover `subagent_type` for a given `agent_id`.
@@ -167,20 +180,33 @@ fn lookup_subagent_type_in_parent(
 }
 
 fn build_parent_subagent_type_lookup(parent_path: &Path) -> Option<HashMap<String, String>> {
+    if !file_within_size_limit(parent_path) {
+        return None;
+    }
+
     let file = std::fs::File::open(parent_path).ok()?;
-    let reader = BufReader::new(file);
+    let mut reader = BufReader::new(file);
 
     // tool_use.id → subagent_type
     let mut tool_use_types: HashMap<String, String> = HashMap::new();
     // tool_use_id → agentId (from tool_result text)
     let mut agent_id_links: HashMap<String, String> = HashMap::new();
 
-    for line in reader.lines() {
-        let line = match line {
-            Ok(l) => l,
+    let mut line_buffer = Vec::with_capacity(4096);
+    loop {
+        let bytes_read = match read_line_bytes_limited(&mut reader, &mut line_buffer) {
+            Ok(0) => break,
+            Ok(bytes_read) => bytes_read,
+            Err(_) => break,
+        };
+        if bytes_read == 0 {
+            break;
+        }
+
+        let trimmed = match std::str::from_utf8(&line_buffer) {
+            Ok(line) => line.trim(),
             Err(_) => continue,
         };
-        let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
@@ -318,12 +344,16 @@ pub fn parse_claude_file_with_cache(
         }
     }
 
+    if !file_within_size_limit(path) {
+        return Vec::new();
+    }
+
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(_) => return Vec::new(),
     };
 
-    let reader = BufReader::new(file);
+    let mut reader = BufReader::new(file);
     let mut messages: Vec<UnifiedMessage> = Vec::with_capacity(64);
     // Maps dedup_key to the index in `messages` of the first occurrence.
     // CC's streaming API writes the same messageId:requestId multiple times as the
@@ -340,13 +370,21 @@ pub fn parse_claude_file_with_cache(
     let mut sidechain_agent: Option<String> = None;
     let mut sidechain_detected = false;
 
-    for line in reader.lines() {
-        let line = match line {
-            Ok(l) => l,
+    let mut line_buffer = Vec::with_capacity(4096);
+    loop {
+        let bytes_read = match read_line_bytes_limited(&mut reader, &mut line_buffer) {
+            Ok(0) => break,
+            Ok(bytes_read) => bytes_read,
+            Err(_) => break,
+        };
+        if bytes_read == 0 {
+            break;
+        }
+
+        let trimmed = match std::str::from_utf8(&line_buffer) {
+            Ok(line) => line.trim(),
             Err(_) => continue,
         };
-
-        let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
@@ -424,6 +462,7 @@ pub fn parse_claude_file_with_cache(
                     Some(m) => m,
                     None => continue,
                 };
+                let provider = provider_for_claude_model(&model);
 
                 let timestamp = entry
                     .timestamp
@@ -439,7 +478,7 @@ pub fn parse_claude_file_with_cache(
                 let mut unified = UnifiedMessage::new_with_dedup(
                     "claude",
                     model,
-                    "anthropic",
+                    provider,
                     session_id.clone(),
                     timestamp,
                     TokenBreakdown {
@@ -603,12 +642,13 @@ fn extract_claude_headless_message(
         .get("usage")
         .or_else(|| value.get("message").and_then(|msg| msg.get("usage")))?;
     let model = extract_claude_model(value)?;
+    let provider = provider_for_claude_model(&model);
     let timestamp = extract_claude_timestamp(value).unwrap_or(fallback_timestamp);
 
     Some(UnifiedMessage::new(
         "claude",
         model,
-        "anthropic",
+        provider,
         session_id.to_string(),
         timestamp,
         TokenBreakdown {
@@ -671,6 +711,12 @@ fn extract_claude_model(value: &Value) -> Option<String> {
     })
 }
 
+fn provider_for_claude_model(model: &str) -> String {
+    provider_identity::inferred_provider_from_model(model)
+        .unwrap_or("anthropic")
+        .to_string()
+}
+
 fn extract_claude_timestamp(value: &Value) -> Option<i64> {
     value
         .get("timestamp")
@@ -700,6 +746,7 @@ fn finalize_headless_state(
     fallback_timestamp: i64,
 ) -> Option<UnifiedMessage> {
     let model = state.model.clone()?;
+    let provider = provider_for_claude_model(&model);
     let timestamp = state.timestamp_ms.unwrap_or(fallback_timestamp);
     if state.input == 0 && state.output == 0 && state.cache_read == 0 && state.cache_write == 0 {
         *state = ClaudeHeadlessState::default();
@@ -709,7 +756,7 @@ fn finalize_headless_state(
     let message = UnifiedMessage::new(
         "claude",
         model,
-        "anthropic",
+        provider,
         session_id.to_string(),
         timestamp,
         TokenBreakdown {
@@ -1025,6 +1072,21 @@ mod tests {
         assert_eq!(messages[0].tokens.cache_read, 200);
         assert_eq!(messages[0].tokens.cache_write, 100);
         assert_eq!(messages[0].tokens.reasoning, 0);
+    }
+
+    #[test]
+    fn test_provider_is_inferred_from_non_anthropic_models() {
+        let content = r#"{"type":"assistant","timestamp":"2024-12-01T10:00:00.000Z","requestId":"req_deepseek","message":{"id":"msg_deepseek","model":"deepseek-v3","usage":{"input_tokens":100,"output_tokens":50}}}
+{"type":"assistant","timestamp":"2024-12-01T10:00:01.000Z","requestId":"req_kimi","message":{"id":"msg_kimi","model":"kimi-k2-thinking","usage":{"input_tokens":200,"output_tokens":80}}}
+{"type":"assistant","timestamp":"2024-12-01T10:00:02.000Z","requestId":"req_minimax","message":{"id":"msg_minimax","model":"minimax-m2.7","usage":{"input_tokens":300,"output_tokens":90}}}"#;
+
+        let file = create_test_file(content);
+        let messages = parse_claude_file(file.path());
+
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0].provider_id, "deepseek");
+        assert_eq!(messages[1].provider_id, "moonshotai");
+        assert_eq!(messages[2].provider_id, "minimax");
     }
 
     #[test]
@@ -1448,6 +1510,34 @@ mod tests {
             "Tier 2 should recover agent name from parent tool_use"
         );
         assert_eq!(messages[0].session_id, parent_session_id);
+    }
+
+    #[test]
+    fn test_tier2_rejects_unsafe_parent_session_id() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let project_dir = temp_dir
+            .path()
+            .join(".claude")
+            .join("projects")
+            .join("myproject");
+        std::fs::create_dir_all(&project_dir).unwrap();
+
+        let escaped_parent_path = project_dir.parent().unwrap().join("evil.jsonl");
+        let parent_content = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_evil","name":"Agent","input":{"subagent_type":"should-not-load"}}]}}
+{"type":"user","message":{"content":[{"tool_use_id":"toolu_evil","type":"tool_result","content":[{"type":"text","text":"agentId: evilagent"}]}]}}"#;
+        std::fs::write(&escaped_parent_path, parent_content).unwrap();
+
+        let subagents_dir = project_dir.join("local-parent").join("subagents");
+        std::fs::create_dir_all(&subagents_dir).unwrap();
+        let sidechain_content = r#"{"type":"user","isSidechain":true,"sessionId":"../evil","agentId":"evilagent","timestamp":"2024-12-01T10:00:00.500Z","message":{"content":"task"}}
+{"type":"assistant","isSidechain":true,"sessionId":"../evil","agentId":"evilagent","timestamp":"2024-12-01T10:00:01.000Z","requestId":"req_evil","message":{"id":"msg_evil","model":"claude-3-5-sonnet","usage":{"input_tokens":10,"output_tokens":2}}}"#;
+        let sidechain_path = subagents_dir.join("agent-evilagent.jsonl");
+        std::fs::write(&sidechain_path, sidechain_content).unwrap();
+
+        let messages = parse_claude_file(&sidechain_path);
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].agent, Some("Claude Code Subagent".to_string()));
     }
 
     #[test]

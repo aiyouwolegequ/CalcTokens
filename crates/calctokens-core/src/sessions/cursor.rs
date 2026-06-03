@@ -171,7 +171,10 @@ pub fn parse_cursor_file(path: &Path) -> Vec<UnifiedMessage> {
         }
 
         // Cache write = input_with_cache_write - input_without_cache_write
-        let cache_write = (input_with_cache_write - input_without_cache_write).max(0);
+        let cache_write = input_with_cache_write
+            .checked_sub(input_without_cache_write)
+            .unwrap_or(0)
+            .max(0);
         // Input tokens = input_without_cache_write
         let input = input_without_cache_write;
 
@@ -335,6 +338,24 @@ mod tests {
         assert!((messages[0].cost - 0.10).abs() < 0.001);
 
         assert_eq!(messages[1].model_id, "gpt-4o-mini");
+    }
+
+    #[test]
+    fn test_parse_cursor_clamps_overflowing_cache_write_delta() {
+        let csv = format!(
+            "Date,Model,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens,Cost\n2025-02-01,gpt-4o,{},{},0,1,1,$0.01",
+            i64::MIN,
+            i64::MAX
+        );
+
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("usage.csv");
+        std::fs::write(&file_path, csv).unwrap();
+
+        let messages = parse_cursor_file(&file_path);
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].tokens.cache_write, 0);
     }
 
     #[test]

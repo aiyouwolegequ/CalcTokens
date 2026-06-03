@@ -2,12 +2,21 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::UNIX_EPOCH;
-use reqwest::blocking::Client;
+use reqwest::blocking::{Client, Response};
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
+
+const MAX_HTTP_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_HEARTBEAT_RESPONSE_BYTES: u64 = 64 * 1024;
+const MAX_TRAJECTORIES_PER_ENDPOINT: usize = 4096;
+const MAX_AGY_CLI_SESSIONS: usize = 4096;
+const MAX_METADATA_ITEMS_PER_SESSION: usize = 2048;
+const MAX_RETRY_INFOS_PER_METADATA: usize = 4096;
+const MAX_JSONL_LINES_PER_ARTIFACT: usize = 20_000;
+const MAX_JSONL_ARTIFACT_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug)]
 struct ProcessCandidate {
@@ -194,6 +203,71 @@ fn extract_csrf_token(args: &str) -> String {
     }
 }
 
+fn read_limited_response(mut response: Response, max_bytes: u64) -> Result<Vec<u8>, String> {
+    let mut limited = response.by_ref().take(max_bytes.saturating_add(1));
+    let mut body = Vec::new();
+    limited
+        .read_to_end(&mut body)
+        .map_err(|err| format!("failed to read response body: {}", err))?;
+    if body.len() as u64 > max_bytes {
+        return Err(format!("response body exceeded {} bytes", max_bytes));
+    }
+    Ok(body)
+}
+
+fn parse_json_response_limited(response: Response) -> Result<Value, String> {
+    parse_json_bytes_limited(
+        &read_limited_response(response, MAX_HTTP_RESPONSE_BYTES)?,
+        MAX_HTTP_RESPONSE_BYTES,
+    )
+}
+
+fn parse_json_bytes_limited(body: &[u8], max_bytes: u64) -> Result<Value, String> {
+    if body.len() as u64 > max_bytes {
+        return Err(format!("response body exceeded {} bytes", max_bytes));
+    }
+    serde_json::from_slice(body).map_err(|err| format!("invalid JSON response: {}", err))
+}
+
+fn append_json_line_bounded(
+    lines: &mut Vec<String>,
+    total_bytes: &mut usize,
+    value: Value,
+) -> bool {
+    append_json_line_bounded_with_limits(
+        lines,
+        total_bytes,
+        value,
+        MAX_JSONL_LINES_PER_ARTIFACT,
+        MAX_JSONL_ARTIFACT_BYTES,
+    )
+}
+
+fn append_json_line_bounded_with_limits(
+    lines: &mut Vec<String>,
+    total_bytes: &mut usize,
+    value: Value,
+    max_lines: usize,
+    max_bytes: usize,
+) -> bool {
+    let Ok(line) = serde_json::to_string(&value) else {
+        return false;
+    };
+    let next_bytes = match total_bytes
+        .checked_add(line.len())
+        .and_then(|bytes| bytes.checked_add(1))
+    {
+        Some(bytes) => bytes,
+        None => return false,
+    };
+    if lines.len() >= max_lines || next_bytes > max_bytes {
+        return false;
+    }
+    lines.push(line);
+    *total_bytes = next_bytes;
+    true
+}
+
 /// Single lsof call to discover all TCP LISTEN ports with their PIDs.
 /// Returns Vec of (pid, port) pairs for all listening TCP sockets.
 fn get_all_listening_ports() -> Vec<(u32, u16)> {
@@ -277,7 +351,8 @@ fn probe_heartbeat(client: &Client, port: u16, csrf_token: &str) -> Option<(Stri
             let result = (|| {
                 let res = cl.post(&url).headers(hdrs).json(&pld).send().ok()?;
                 if !res.status().is_success() { return None; }
-                let text = res.text().ok()?;
+                let body = read_limited_response(res, MAX_HEARTBEAT_RESPONSE_BYTES).ok()?;
+                let text = String::from_utf8_lossy(&body);
                 if text.contains("lastExtensionHeartbeat") { Some(protocol.to_string()) } else { None }
             })();
             let _ = tx.send(result);
@@ -423,7 +498,7 @@ fn process_trajectory(
         return None;
     }
     
-    let data: Value = match res.json() {
+    let data: Value = match parse_json_response_limited(res) {
         Ok(d) => d,
         Err(_) => return None,
     };
@@ -432,8 +507,13 @@ fn process_trajectory(
         Some(arr) => arr,
         None => return None,
     };
+
+    if metadata.len() > MAX_METADATA_ITEMS_PER_SESSION {
+        return None;
+    }
     
     let mut jsonl_lines = Vec::new();
+    let mut jsonl_bytes = 0usize;
     
     for meta in metadata {
         let chat_model = meta.get("chatModel").unwrap_or(meta);
@@ -454,8 +534,8 @@ fn process_trajectory(
             "modelId": model_id,
             "timestamp": created_at_ms
         });
-        if let Ok(line_str) = serde_json::to_string(&meta_line) {
-            jsonl_lines.push(line_str);
+        if !append_json_line_bounded(&mut jsonl_lines, &mut jsonl_bytes, meta_line) {
+            return None;
         }
         
         let retry_infos = chat_model
@@ -463,6 +543,10 @@ fn process_trajectory(
             .and_then(|v| v.as_array())
             .cloned()
             .unwrap_or_default();
+
+        if retry_infos.len() > MAX_RETRY_INFOS_PER_METADATA {
+            return None;
+        }
 
         let mut has_retry_usage = false;
 
@@ -503,8 +587,8 @@ fn process_trajectory(
                 "reasoning": reasoning,
                 "responseId": usage.get("responseId")
             });
-            if let Ok(line_str) = serde_json::to_string(&usage_line) {
-                jsonl_lines.push(line_str);
+            if !append_json_line_bounded(&mut jsonl_lines, &mut jsonl_bytes, usage_line) {
+                return None;
             }
         }
 
@@ -534,8 +618,8 @@ fn process_trajectory(
                         "reasoning": reasoning,
                         "responseId": usage.get("responseId")
                     });
-                    if let Ok(line_str) = serde_json::to_string(&usage_line) {
-                        jsonl_lines.push(line_str);
+                    if !append_json_line_bounded(&mut jsonl_lines, &mut jsonl_bytes, usage_line) {
+                        return None;
                     }
                 }
             }
@@ -645,7 +729,7 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
         
-        let data: Value = match res.json() {
+        let data: Value = match parse_json_response_limited(res) {
             Ok(d) => d,
             Err(e) => {
                 eprintln!("Warning: Failed to parse GetAllCascadeTrajectories JSON response on port {}: {}", port, e);
@@ -660,6 +744,16 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
         };
+
+        if trajectories.len() > MAX_TRAJECTORIES_PER_ENDPOINT {
+            eprintln!(
+                "Warning: GetAllCascadeTrajectories returned {} trajectories on port {}, exceeding the limit of {}; skipping endpoint",
+                trajectories.len(),
+                port,
+                MAX_TRAJECTORIES_PER_ENDPOINT
+            );
+            continue;
+        }
         
         for (session_id, summary) in trajectories {
             let last_modified_ms = parse_timestamp(summary.get("lastModifiedTime"));
@@ -704,6 +798,14 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
     // via GetCascadeTrajectoryGeneratorMetadata.
     let agy_sessions = get_agy_cli_sessions();
     if !agy_sessions.is_empty() {
+        if agy_sessions.len() > MAX_AGY_CLI_SESSIONS {
+            eprintln!(
+                "Warning: discovered {} agy CLI sessions, exceeding the limit of {}; skipping agy CLI fallback",
+                agy_sessions.len(),
+                MAX_AGY_CLI_SESSIONS
+            );
+            return Ok(());
+        }
         // Prefer an agy-specific endpoint (no CSRF token), fall back to any active endpoint
         let fallback_endpoint = active_endpoints.first().cloned();
         let agy_endpoint = active_endpoints.iter()
@@ -777,4 +879,64 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
 
 pub fn has_active_agy_process() -> bool {
     !get_active_processes().is_empty()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_json_bytes_limited_rejects_oversized_body() {
+        let body = br#"{"trajectorySummaries":{}}"#;
+
+        let err = parse_json_bytes_limited(body, 4).unwrap_err();
+
+        assert!(err.contains("response body exceeded"));
+    }
+
+    #[test]
+    fn parse_json_bytes_limited_accepts_body_within_limit() {
+        let body = br#"{"trajectorySummaries":{}}"#;
+
+        let value = parse_json_bytes_limited(body, body.len() as u64).unwrap();
+
+        assert!(value.get("trajectorySummaries").is_some());
+    }
+
+    #[test]
+    fn append_json_line_bounded_rejects_line_count_over_limit() {
+        let mut lines = Vec::new();
+        let mut total_bytes = 0usize;
+
+        assert!(append_json_line_bounded_with_limits(
+            &mut lines,
+            &mut total_bytes,
+            json!({"type":"session_meta"}),
+            1,
+            1024
+        ));
+        assert!(!append_json_line_bounded_with_limits(
+            &mut lines,
+            &mut total_bytes,
+            json!({"type":"usage"}),
+            1,
+            1024
+        ));
+        assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn append_json_line_bounded_rejects_byte_count_over_limit() {
+        let mut lines = Vec::new();
+        let mut total_bytes = 0usize;
+
+        assert!(!append_json_line_bounded_with_limits(
+            &mut lines,
+            &mut total_bytes,
+            json!({"type":"session_meta"}),
+            10,
+            4
+        ));
+        assert!(lines.is_empty());
+    }
 }

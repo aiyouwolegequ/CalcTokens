@@ -12,6 +12,9 @@ use crate::sessions::{normalize_workspace_key, workspace_label_from_key};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+const MAX_SCAN_FILE_ENTRIES_PER_ROOT: usize = 250_000;
+const MAX_SCAN_MATCHES_PER_ROOT: usize = 100_000;
+
 /// User-controlled scanner settings loaded from a config file.
 ///
 /// This is the persistent, declarative counterpart to environment variables
@@ -168,75 +171,95 @@ pub fn copilot_exporter_path() -> Option<PathBuf> {
 
 /// Scan a single directory for session files
 pub fn scan_directory(root: &str, pattern: &str) -> Vec<PathBuf> {
+    scan_directory_with_limits(
+        root,
+        pattern,
+        MAX_SCAN_FILE_ENTRIES_PER_ROOT,
+        MAX_SCAN_MATCHES_PER_ROOT,
+    )
+}
+
+fn scan_directory_with_limits(
+    root: &str,
+    pattern: &str,
+    max_file_entries: usize,
+    max_matches: usize,
+) -> Vec<PathBuf> {
     if !std::path::Path::new(root).exists() {
         return Vec::new();
     }
 
-    // Collect entries first (WalkDir is sequential I/O), then filter in parallel.
-    // Avoids par_bridge mutex contention on the sequential directory iterator.
-    let entries: Vec<_> = WalkDir::new(root)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_file())
-        .collect();
+    let mut paths = Vec::new();
+    let mut scanned_files = 0usize;
+    for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
+        if !entry.path().is_file() {
+            continue;
+        }
 
-    let mut paths: Vec<PathBuf> = entries
-        .into_par_iter()
-        .filter(|e| {
-            let path = e.path();
-            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        scanned_files += 1;
+        if scanned_files > max_file_entries {
+            break;
+        }
 
-            let is_in_archive_dir = path.components().any(|c| {
-                c.as_os_str()
-                    .to_string_lossy()
-                    .eq_ignore_ascii_case("archive")
-            });
-
-            match pattern {
-                "*.json" => file_name.ends_with(".json"),
-                "*.json|*.jsonl" => file_name.ends_with(".json") || file_name.ends_with(".jsonl"),
-                "*.jsonl" => file_name.ends_with(".jsonl"),
-                "*.jsonl*" => {
-                    file_name.ends_with(".jsonl")
-                        || file_name.contains(".jsonl.deleted.")
-                        || file_name.contains(".jsonl.reset.")
-                }
-                "*.csv" => file_name.ends_with(".csv"),
-                "usage*.csv" => {
-                    if is_in_archive_dir {
-                        return false;
-                    }
-                    if file_name == "usage.csv" {
-                        return true;
-                    }
-                    if !file_name.starts_with("usage.") || !file_name.ends_with(".csv") {
-                        return false;
-                    }
-                    if file_name.starts_with("usage.backup") {
-                        return false;
-                    }
-                    true
-                }
-                "session-*.json" => {
-                    file_name.starts_with("session-") && file_name.ends_with(".json")
-                }
-                "T-*.json" => file_name.starts_with("T-") && file_name.ends_with(".json"),
-                "*.settings.json" => file_name.ends_with(".settings.json"),
-                "sessions.json" => file_name == "sessions.json",
-                "wire.jsonl" => file_name == "wire.jsonl",
-                "ui_messages.json" => file_name == "ui_messages.json",
-                "session-usage.json" => file_name == "session-usage.json",
-                "chat-messages.json" => file_name == "chat-messages.json",
-                _ => false,
+        if matches_scan_pattern(entry.path(), pattern) {
+            paths.push(entry.path().to_path_buf());
+            if paths.len() >= max_matches {
+                break;
             }
-        })
-        .map(|e| e.path().to_path_buf())
-        .collect();
+        }
+    }
+
     // Sort for deterministic ordering. sort_unstable() is sufficient (no stability
     // requirement for PathBuf) and avoids allocation. Note: ordering is byte-lexical,
     // not case-normalized (known Windows/macOS caveat for mixed-case paths).
     paths.sort_unstable();
     paths
+}
+
+fn matches_scan_pattern(path: &Path, pattern: &str) -> bool {
+    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+    let is_in_archive_dir = path.components().any(|c| {
+        c.as_os_str()
+            .to_string_lossy()
+            .eq_ignore_ascii_case("archive")
+    });
+
+    match pattern {
+        "*.json" => file_name.ends_with(".json"),
+        "*.json|*.jsonl" => file_name.ends_with(".json") || file_name.ends_with(".jsonl"),
+        "*.jsonl" => file_name.ends_with(".jsonl"),
+        "*.jsonl*" => {
+            file_name.ends_with(".jsonl")
+                || file_name.contains(".jsonl.deleted.")
+                || file_name.contains(".jsonl.reset.")
+        }
+        "*.csv" => file_name.ends_with(".csv"),
+        "usage*.csv" => {
+            if is_in_archive_dir {
+                return false;
+            }
+            if file_name == "usage.csv" {
+                return true;
+            }
+            if !file_name.starts_with("usage.") || !file_name.ends_with(".csv") {
+                return false;
+            }
+            if file_name.starts_with("usage.backup") {
+                return false;
+            }
+            true
+        }
+        "session-*.json" => file_name.starts_with("session-") && file_name.ends_with(".json"),
+        "T-*.json" => file_name.starts_with("T-") && file_name.ends_with(".json"),
+        "*.settings.json" => file_name.ends_with(".settings.json"),
+        "sessions.json" => file_name == "sessions.json",
+        "wire.jsonl" => file_name == "wire.jsonl",
+        "ui_messages.json" => file_name == "ui_messages.json",
+        "session-usage.json" => file_name == "session-usage.json",
+        "chat-messages.json" => file_name == "chat-messages.json",
+        _ => false,
+    }
 }
 
 /// Parse a `CALCTOKENS_EXTRA_DIRS`-formatted string into (ClientId, path) pairs.
@@ -1244,6 +1267,34 @@ mod tests {
             vec!["alpha.jsonl", "beta.jsonl", "middle.jsonl", "zebra.jsonl"],
             "Results must be lexically sorted"
         );
+    }
+
+    #[test]
+    fn test_scan_directory_respects_match_limit() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path();
+
+        for name in ["a.jsonl", "b.jsonl", "c.jsonl"] {
+            File::create(path.join(name)).unwrap();
+        }
+
+        let files = scan_directory_with_limits(path.to_str().unwrap(), "*.jsonl", 10, 2);
+
+        assert_eq!(files.len(), 2);
+    }
+
+    #[test]
+    fn test_scan_directory_respects_entry_limit_before_filtering() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path();
+
+        for name in ["a.txt", "b.txt", "c.jsonl"] {
+            File::create(path.join(name)).unwrap();
+        }
+
+        let files = scan_directory_with_limits(path.to_str().unwrap(), "*.jsonl", 0, 10);
+
+        assert!(files.is_empty());
     }
 
     fn setup_mock_opencode_dir(base: &std::path::Path) {

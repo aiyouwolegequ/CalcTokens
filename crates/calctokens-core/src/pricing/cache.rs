@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 const CACHE_TTL_SECS: u64 = 3600;
+const MAX_PRICING_CACHE_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
 pub fn get_cache_dir() -> PathBuf {
     crate::paths::get_cache_dir()
@@ -24,11 +25,11 @@ fn load_cache_with_policy<T: for<'de> Deserialize<'de>>(
     allow_stale: bool,
 ) -> Option<T> {
     let canonical_path = get_cache_path(filename);
-    let cached: CachedData<T> = match fs::read_to_string(&canonical_path) {
+    let cached: CachedData<T> = match read_cache_file_bounded(&canonical_path) {
         Ok(content) => serde_json::from_str(&content).ok()?,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             legacy_cache_paths(filename).into_iter().find_map(|path| {
-                let content = fs::read_to_string(&path).ok()?;
+                let content = read_cache_file_bounded(&path).ok()?;
                 serde_json::from_str(&content).ok()
             })?
         }
@@ -49,6 +50,17 @@ fn load_cache_with_policy<T: for<'de> Deserialize<'de>>(
     }
 
     Some(cached.data)
+}
+
+fn read_cache_file_bounded(path: &std::path::Path) -> Result<String, std::io::Error> {
+    let metadata = fs::metadata(path)?;
+    if metadata.len() > MAX_PRICING_CACHE_FILE_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "pricing cache file exceeds size limit",
+        ));
+    }
+    fs::read_to_string(path)
 }
 
 pub fn load_cache<T: for<'de> Deserialize<'de>>(filename: &str) -> Option<T> {
@@ -156,7 +168,7 @@ mod tests {
 
         let legacy_path = crate::paths::legacy_dirs_cache_dir()
             .unwrap()
-            .join("pricing-litellm.json");
+            .join("pricing-openrouter.json");
         fs::create_dir_all(legacy_path.parent().unwrap()).unwrap();
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -168,8 +180,38 @@ mod tests {
         )
         .unwrap();
 
-        let loaded: Option<serde_json::Value> = load_cache("pricing-litellm.json");
+        let loaded: Option<serde_json::Value> = load_cache("pricing-openrouter.json");
         assert_eq!(loaded.unwrap()["ok"], serde_json::json!(true));
+
+        restore_env_var("HOME", previous_home);
+        restore_env_var("XDG_CACHE_HOME", previous_xdg_cache);
+        restore_env_var("XDG_CONFIG_HOME", previous_xdg_config);
+        restore_env_var("CALCTOKENS_CONFIG_DIR", previous_override);
+    }
+
+    #[test]
+    #[serial]
+    fn load_ignores_oversized_pricing_cache_file() {
+        let temp_home = TempDir::new().unwrap();
+        let temp_xdg_cache = TempDir::new().unwrap();
+        let previous_home = env::var_os("HOME");
+        let previous_xdg_cache = env::var_os("XDG_CACHE_HOME");
+        let previous_xdg_config = env::var_os("XDG_CONFIG_HOME");
+        let previous_override = env::var_os("CALCTOKENS_CONFIG_DIR");
+        unsafe {
+            env::set_var("HOME", temp_home.path());
+            env::set_var("XDG_CACHE_HOME", temp_xdg_cache.path());
+            env::set_var("XDG_CONFIG_HOME", temp_home.path().join(".config"));
+            env::remove_var("CALCTOKENS_CONFIG_DIR");
+        }
+
+        let cache_path = get_cache_path("pricing-openrouter.json");
+        fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+        let file = fs::File::create(&cache_path).unwrap();
+        file.set_len(MAX_PRICING_CACHE_FILE_BYTES + 1).unwrap();
+
+        let loaded: Option<serde_json::Value> = load_cache_any_age("pricing-openrouter.json");
+        assert!(loaded.is_none());
 
         restore_env_var("HOME", previous_home);
         restore_env_var("XDG_CACHE_HOME", previous_xdg_cache);

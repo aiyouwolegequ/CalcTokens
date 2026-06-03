@@ -9,7 +9,7 @@ use super::{
     normalize_opencode_agent_name, normalize_workspace_key, workspace_label_from_key,
     UnifiedMessage,
 };
-use crate::TokenBreakdown;
+use crate::{provider_identity, TokenBreakdown};
 #[cfg(test)]
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -109,6 +109,26 @@ fn set_workspace_from_root(message: &mut UnifiedMessage, root: Option<&str>) {
     message.set_workspace(workspace_key, workspace_label);
 }
 
+fn resolved_opencode_provider(provider_id: Option<String>, model_id: &str) -> String {
+    provider_id
+        .and_then(|provider| {
+            let provider = provider.trim().to_string();
+            if provider.is_empty() || provider.eq_ignore_ascii_case("unknown") {
+                None
+            } else {
+                Some(provider)
+            }
+        })
+        .or_else(|| {
+            if super::synthetic::is_synthetic_model(model_id) {
+                None
+            } else {
+                provider_identity::inferred_provider_from_model(model_id).map(str::to_string)
+            }
+        })
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 fn merge_duplicate_workspace(
     message: &mut UnifiedMessage,
     state: &mut OpenCodeSqliteDedupState,
@@ -146,6 +166,7 @@ pub fn parse_opencode_file(path: &Path) -> Option<UnifiedMessage> {
         .map(str::to_string);
     let tokens = msg.tokens?;
     let model_id = msg.model_id?;
+    let provider_id = resolved_opencode_provider(msg.provider_id, &model_id);
     let agent_or_mode = msg.mode.or(msg.agent);
     let agent = agent_or_mode.map(|a| normalize_opencode_agent_name(&a));
 
@@ -161,7 +182,7 @@ pub fn parse_opencode_file(path: &Path) -> Option<UnifiedMessage> {
     let mut unified = UnifiedMessage::new_with_agent(
         "opencode",
         model_id,
-        msg.provider_id.unwrap_or_else(|| "unknown".to_string()),
+        provider_id,
         session_id,
         msg.time.created as i64,
         TokenBreakdown {
@@ -261,7 +282,7 @@ pub fn parse_opencode_sqlite(db_path: &Path) -> Vec<UnifiedMessage> {
             None => continue,
         };
 
-        let provider_id = msg.provider_id.unwrap_or_else(|| "unknown".to_string());
+        let provider_id = resolved_opencode_provider(msg.provider_id, &model_id);
         let agent_or_mode = msg.mode.or(msg.agent);
         let agent = agent_or_mode.map(|a| normalize_opencode_agent_name(&a));
         let input = tokens.input.max(0);
@@ -578,6 +599,83 @@ mod tests {
             "Negative cost should be clamped to 0.0, got {}",
             msg.cost
         );
+    }
+
+    #[test]
+    fn test_parse_opencode_file_infers_provider_when_missing() {
+        let json = r#"{
+            "id": "msg_kimi",
+            "sessionID": "ses_001",
+            "role": "assistant",
+            "modelID": "kimi-k2-thinking",
+            "cost": 0.01,
+            "tokens": {
+                "input": 100,
+                "output": 50,
+                "reasoning": 0,
+                "cache": { "read": 0, "write": 0 }
+            },
+            "time": { "created": 1700000000000.0 }
+        }"#;
+
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("msg_kimi.json");
+        std::fs::write(&file_path, json).unwrap();
+
+        let msg = parse_opencode_file(&file_path).expect("Should parse");
+        assert_eq!(msg.provider_id, "moonshotai");
+    }
+
+    #[test]
+    fn test_parse_opencode_file_infers_provider_when_unknown() {
+        let json = r#"{
+            "id": "msg_minimax",
+            "sessionID": "ses_001",
+            "role": "assistant",
+            "modelID": "minimax-m2.7",
+            "providerID": "unknown",
+            "cost": 0.01,
+            "tokens": {
+                "input": 100,
+                "output": 50,
+                "reasoning": 0,
+                "cache": { "read": 0, "write": 0 }
+            },
+            "time": { "created": 1700000000000.0 }
+        }"#;
+
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("msg_minimax.json");
+        std::fs::write(&file_path, json).unwrap();
+
+        let msg = parse_opencode_file(&file_path).expect("Should parse");
+        assert_eq!(msg.provider_id, "minimax");
+    }
+
+    #[test]
+    fn test_parse_opencode_file_preserves_unknown_for_synthetic_gateway_model() {
+        let json = r#"{
+            "id": "msg_synthetic",
+            "sessionID": "ses_001",
+            "role": "assistant",
+            "modelID": "hf:deepseek-ai/DeepSeek-V3-0324",
+            "providerID": "unknown",
+            "cost": 0.01,
+            "tokens": {
+                "input": 100,
+                "output": 50,
+                "reasoning": 0,
+                "cache": { "read": 0, "write": 0 }
+            },
+            "time": { "created": 1700000000000.0 }
+        }"#;
+
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("msg_synthetic.json");
+        std::fs::write(&file_path, json).unwrap();
+
+        let msg = parse_opencode_file(&file_path).expect("Should parse");
+        assert_eq!(msg.provider_id, "unknown");
     }
 
     /// JSON dedup_key uses msg.id when present

@@ -5,15 +5,15 @@
 //! `session-*.jsonl` chat recordings.
 
 use super::utils::{
-    extract_i64, extract_string, file_modified_timestamp_ms, parse_timestamp_value,
-    read_file_or_none,
+    extract_i64, extract_string, file_modified_timestamp_ms, file_within_size_limit,
+    parse_timestamp_value, read_file_or_none, read_line_bytes_limited,
 };
 use super::UnifiedMessage;
-use crate::TokenBreakdown;
+use crate::{provider_identity, TokenBreakdown};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
+use std::io::BufReader;
 use std::path::Path;
 
 /// Gemini session structure
@@ -199,8 +199,8 @@ fn build_gemini_token_message(
 
     UnifiedMessage::new(
         "gemini",
-        model,
-        "google",
+        model.clone(),
+        provider_for_gemini_model(&model),
         session_id.to_string(),
         timestamp,
         TokenBreakdown {
@@ -231,6 +231,13 @@ fn parse_direct_gemini_token_message(
 }
 
 fn parse_gemini_headless_jsonl(path: &Path, fallback_timestamp: i64) -> GeminiParseResult {
+    if !file_within_size_limit(path) {
+        return GeminiParseResult {
+            messages: Vec::new(),
+            cacheable: false,
+        };
+    }
+
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(_) => {
@@ -255,8 +262,7 @@ fn parse_gemini_headless_jsonl(path: &Path, fallback_timestamp: i64) -> GeminiPa
     let mut skipped_malformed_line = false;
 
     loop {
-        line_buffer.clear();
-        let bytes_read = match reader.read_until(b'\n', &mut line_buffer) {
+        let bytes_read = match read_line_bytes_limited(&mut reader, &mut line_buffer) {
             Ok(n) => n,
             Err(_) => {
                 skipped_malformed_line = true;
@@ -404,8 +410,8 @@ fn build_messages_from_stats(
             };
             UnifiedMessage::new(
                 "gemini",
-                usage.model,
-                "google",
+                usage.model.clone(),
+                provider_for_gemini_model(&usage.model),
                 session_id.to_string(),
                 timestamp,
                 TokenBreakdown {
@@ -419,6 +425,12 @@ fn build_messages_from_stats(
             )
         })
         .collect()
+}
+
+fn provider_for_gemini_model(model: &str) -> String {
+    provider_identity::inferred_provider_from_model(model)
+        .unwrap_or("google")
+        .to_string()
 }
 
 fn subtract_cached_overlap(input: i64, cached: i64) -> (i64, i64) {
@@ -854,6 +866,22 @@ mod tests {
         assert_eq!(messages[0].tokens.cache_read, 0);
         assert_eq!(messages[0].tokens.reasoning, 863);
         assert_eq!(messages[0].tokens.total(), 15848);
+    }
+
+    #[test]
+    fn test_parse_gemini_stream_jsonl_infers_provider_from_agent_model() {
+        let content = r#"{"type":"gemini","id":"msg-1","model":"kimi-k2-thinking","tokens":{"input":10,"output":1,"cached":0,"thoughts":0,"tool":0,"total":11}}"#;
+        let dir = TempDir::new().unwrap();
+        let chats_dir = dir.path().join(".gemini/tmp/123/chats");
+        std::fs::create_dir_all(&chats_dir).unwrap();
+        let file_path = chats_dir.join("session-abc.jsonl");
+        std::fs::write(&file_path, content).unwrap();
+
+        let messages = parse_gemini_file(&file_path);
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].model_id, "kimi-k2-thinking");
+        assert_eq!(messages[0].provider_id, "moonshotai");
     }
 
     #[test]

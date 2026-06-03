@@ -1642,10 +1642,10 @@ fn pricing_multiplier(message: &UnifiedMessage) -> f64 {
     // Source: https://zed.dev/docs/ai/plans-and-usage and https://zed.dev/docs/ai/models
     //
     // The multiplier is keyed on the message's `provider_id`, not on the
-    // provenance of the matched LiteLLM pricing row. Today this is safe because
-    // calctokens's bundled LiteLLM dataset only carries upstream-provider rows
+    // provenance of the matched pricing row. Today this is safe because
+    // calctokens's pricing service only carries upstream-provider rows
     // (anthropic, openai, google) for the underlying models. If a future
-    // LiteLLM update adds rows under provider `zed.dev` that already include
+    // an upstream pricing update adds rows under provider `zed.dev` that already include
     // Zed's markup, this function would double-bill — revisit by threading
     // the matched-price provenance through `apply_pricing_if_available`.
     if message.client == "zed"
@@ -2749,7 +2749,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cursor_parse_path_replaces_zero_cost_composer_1_5_rows() {
+    fn test_cursor_parse_path_keeps_zero_cost_without_openrouter_pricing() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let cursor_cache_dir = temp_dir.path().join(".config/calctokens/cursor-cache");
         std::fs::create_dir_all(&cursor_cache_dir).unwrap();
@@ -2758,7 +2758,7 @@ mod tests {
 "2026-03-04T12:00:00.000Z","Included","Composer 1.5","No","1200","1000","5000","2000","8000","0""#;
         std::fs::write(cursor_cache_dir.join("usage.csv"), csv).unwrap();
 
-        let pricing = pricing::PricingService::new(HashMap::new(), HashMap::new());
+        let pricing = pricing::PricingService::new(HashMap::new());
         let messages = parse_all_messages_with_pricing(
             temp_dir.path().to_str().unwrap(),
             &["cursor".to_string()],
@@ -2768,7 +2768,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].client, "cursor");
         assert_eq!(messages[0].model_id, "Composer 1.5");
-        assert!(messages[0].cost > 0.0);
+        assert_eq!(messages[0].cost, 0.0);
     }
 
     #[test]
@@ -4068,7 +4068,7 @@ mod tests {
                     ..Default::default()
                 },
             );
-            let pricing = pricing::PricingService::new(litellm, HashMap::new());
+            let pricing = pricing::PricingService::new(litellm);
 
             let repriced_messages = parse_all_messages_with_pricing(
                 source_home.path().to_str().unwrap(),
@@ -4129,7 +4129,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let pricing = pricing::PricingService::new(litellm, HashMap::new());
+        let pricing = pricing::PricingService::new(litellm);
 
         let mut msg = UnifiedMessage::new(
             "codex",
@@ -4163,7 +4163,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let pricing = pricing::PricingService::new(litellm, HashMap::new());
+        let pricing = pricing::PricingService::new(litellm);
 
         let mut msg = UnifiedMessage::new(
             "zed",
@@ -4199,7 +4199,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let pricing = pricing::PricingService::new(litellm, HashMap::new());
+        let pricing = pricing::PricingService::new(litellm);
 
         let mut msg = UnifiedMessage::new(
             "claudecode",
@@ -4237,7 +4237,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let pricing = pricing::PricingService::new(litellm, HashMap::new());
+        let pricing = pricing::PricingService::new(litellm);
 
         let mut msg = UnifiedMessage::new(
             "zed",
@@ -4271,7 +4271,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let pricing = pricing::PricingService::new(litellm, HashMap::new());
+        let pricing = pricing::PricingService::new(litellm);
 
         let mut msg = UnifiedMessage::new(
             "gemini",
@@ -4306,7 +4306,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let pricing = pricing::PricingService::new(litellm, HashMap::new());
+        let pricing = pricing::PricingService::new(litellm);
 
         let mut msg = UnifiedMessage::new(
             "gemini",
@@ -4340,7 +4340,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let pricing = pricing::PricingService::new(HashMap::new(), openrouter);
+        let pricing = pricing::PricingService::new(openrouter);
 
         let mut msg = UnifiedMessage::new(
             "opencode",
@@ -4382,7 +4382,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let pricing = pricing::PricingService::new(litellm, HashMap::new());
+        let pricing = pricing::PricingService::new(litellm);
 
         let mut msg = UnifiedMessage::new(
             "opencode",
@@ -4424,7 +4424,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let pricing = pricing::PricingService::new(litellm, HashMap::new());
+        let pricing = pricing::PricingService::new(litellm);
 
         let mut msg = UnifiedMessage::new(
             "opencode",
@@ -4449,17 +4449,6 @@ mod tests {
 
     #[test]
     fn test_apply_pricing_if_available_prefers_provider_specific_exact_match_over_plain_exact() {
-        let mut litellm = HashMap::new();
-        litellm.insert(
-            "gemini-2.5-pro".into(),
-            pricing::ModelPricing {
-                input_cost_per_token: Some(0.001),
-                output_cost_per_token: Some(0.002),
-                cache_creation_input_token_cost: None,
-                ..Default::default()
-            },
-        );
-
         let mut openrouter = HashMap::new();
         openrouter.insert(
             "google/gemini-2.5-pro".into(),
@@ -4471,7 +4460,7 @@ mod tests {
             },
         );
 
-        let pricing = pricing::PricingService::new(litellm, openrouter);
+        let pricing = pricing::PricingService::new(openrouter);
 
         let mut msg = UnifiedMessage::new(
             "opencode",
@@ -4513,7 +4502,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let pricing = pricing::PricingService::new(litellm, HashMap::new());
+        let pricing = pricing::PricingService::new(litellm);
 
         let mut msg = UnifiedMessage::new(
             "openclaw",
@@ -4547,8 +4536,8 @@ mod tests {
                 ..Default::default()
             },
         );
-        let fresh = Arc::new(pricing::PricingService::new(fresh_litellm, HashMap::new()));
-        let stale = pricing::PricingService::new(HashMap::new(), HashMap::new());
+        let fresh = Arc::new(pricing::PricingService::new(fresh_litellm));
+        let stale = pricing::PricingService::new(HashMap::new());
         let selected = select_local_parse_pricing(Ok(Arc::clone(&fresh)), || Some(stale)).unwrap();
 
         let mut msg = UnifiedMessage::new(
@@ -4583,7 +4572,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let stale = pricing::PricingService::new(stale_litellm, HashMap::new());
+        let stale = pricing::PricingService::new(stale_litellm);
 
         let selected =
             select_local_parse_pricing(Err("network failed".to_string()), || Some(stale)).unwrap();
@@ -4593,7 +4582,7 @@ mod tests {
 
     #[test]
     fn test_select_local_parse_pricing_does_not_evaluate_stale_fallback_on_fresh_success() {
-        let fresh = Arc::new(pricing::PricingService::new(HashMap::new(), HashMap::new()));
+        let fresh = Arc::new(pricing::PricingService::new(HashMap::new()));
         let mut stale_called = false;
 
         let selected = select_local_parse_pricing(Ok(Arc::clone(&fresh)), || {
@@ -4619,7 +4608,7 @@ mod tests {
         )
         .unwrap();
 
-        let pricing = pricing::PricingService::new(HashMap::new(), HashMap::new());
+        let pricing = pricing::PricingService::new(HashMap::new());
         let messages = parse_all_messages_with_pricing(
             temp_dir.path().to_str().unwrap(),
             &["synthetic".to_string()],
@@ -4676,7 +4665,7 @@ mod tests {
         )
         .unwrap();
 
-        let pricing = pricing::PricingService::new(HashMap::new(), HashMap::new());
+        let pricing = pricing::PricingService::new(HashMap::new());
         let messages = parse_all_messages_with_pricing(
             temp_dir.path().to_str().unwrap(),
             &["synthetic".to_string()],

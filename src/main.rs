@@ -16,6 +16,8 @@ use calctokens_core::{
 mod antigravity;
 
 const EXCH_API: &str = "https://api.exchangerate-api.com/v4/latest/USD";
+const MIN_CNY_RATE: f64 = 0.01;
+const MAX_CNY_RATE: f64 = 100.0;
 fn db_path() -> String {
     let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| ".".into());
     format!("{}/.calctokens.db", home)
@@ -72,6 +74,18 @@ struct Args {
 struct ExchangeResp { rates: Rates }
 #[derive(Deserialize, Debug)]
 struct Rates { #[serde(rename = "CNY")] cny: f64 }
+
+fn validate_cny_rate(rate: f64) -> Option<f64> {
+    (rate.is_finite() && (MIN_CNY_RATE..=MAX_CNY_RATE).contains(&rate)).then_some(rate)
+}
+
+fn fetch_cny_rate() -> Result<f64, Box<dyn std::error::Error>> {
+    let rate = Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()?
+        .get(EXCH_API).send()?.json::<ExchangeResp>()?.rates.cny;
+    validate_cny_rate(rate).ok_or_else(|| format!("invalid USD/CNY exchange rate: {rate}").into())
+}
 
 #[derive(Debug, Clone, Default)]
 struct Stats {
@@ -222,6 +236,23 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
     )?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_cny_rate_accepts_plausible_rate() {
+        assert_eq!(validate_cny_rate(7.2), Some(7.2));
+    }
+
+    #[test]
+    fn validate_cny_rate_rejects_zero_negative_and_extreme_rates() {
+        assert!(validate_cny_rate(0.0).is_none());
+        assert!(validate_cny_rate(-1.0).is_none());
+        assert!(validate_cny_rate(1000.0).is_none());
+    }
 }
 
 /// One-time backfill: compute canonical_id for messages that don't have one.
@@ -1013,10 +1044,7 @@ fn do_upgrade(conn: &Connection, rt: &Runtime) -> Result<(), Box<dyn std::error:
 
     // 1. Fetch and store exchange rate
     println!("[upgrade] Fetching USD/CNY exchange rate...");
-    let rate: f64 = Client::builder()
-        .timeout(std::time::Duration::from_secs(8))
-        .build()?
-        .get(EXCH_API).send()?.json::<ExchangeResp>()?.rates.cny;
+    let rate = fetch_cny_rate()?;
     save_exchange_cache(conn, "CNY", rate)?;
     conn.execute(
         "INSERT OR REPLACE INTO exchange_rates (date, rate, updated_at) VALUES (?1, ?2, ?3)",
@@ -1026,9 +1054,7 @@ fn do_upgrade(conn: &Connection, rt: &Runtime) -> Result<(), Box<dyn std::error:
 
     // 2. Delete pricing cache files to force fresh fetch
     let or_cache = calctokens_core::pricing::cache::get_cache_path("pricing-openrouter.json");
-    let ll_cache = calctokens_core::pricing::cache::get_cache_path("pricing-litellm.json");
     std::fs::remove_file(&or_cache).ok();
-    std::fs::remove_file(&ll_cache).ok();
 
     // 3. Fetch fresh OpenRouter model data
     println!("[upgrade] Fetching OpenRouter model metadata...");
@@ -1105,12 +1131,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         else { "default" };
 
     let exchange: f64 = if let Some(cached) = get_cached_exchange(&conn, "CNY")? {
-        cached
+        if let Some(rate) = validate_cny_rate(cached) {
+            rate
+        } else {
+            let rate = fetch_cny_rate()?;
+            save_exchange_cache(&conn, "CNY", rate)?;
+            rate
+        }
     } else {
-        let rate: f64 = Client::builder()
-            .timeout(std::time::Duration::from_secs(8))
-            .build()?
-            .get(EXCH_API).send()?.json::<ExchangeResp>()?.rates.cny;
+        let rate = fetch_cny_rate()?;
         save_exchange_cache(&conn, "CNY", rate)?;
         rate
     };

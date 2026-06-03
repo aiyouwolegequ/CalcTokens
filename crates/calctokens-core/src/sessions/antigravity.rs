@@ -1,12 +1,12 @@
+use super::utils::read_text_file_or_none;
 use super::UnifiedMessage;
 use crate::{pricing, provider_identity, TokenBreakdown};
 use serde_json::Value;
 use std::path::Path;
 
 pub fn parse_antigravity_file(path: &Path) -> Vec<UnifiedMessage> {
-    let content = match std::fs::read_to_string(path) {
-        Ok(content) => content,
-        Err(_) => return Vec::new(),
+    let Some(content) = read_text_file_or_none(path) else {
+        return Vec::new();
     };
 
     let mut messages = Vec::new();
@@ -66,7 +66,10 @@ fn parse_usage_row(value: &Value, fallback_model: Option<&str>) -> Option<Unifie
     let provider_id = value
         .get("providerId")
         .and_then(Value::as_str)
-        .filter(|text| !text.trim().is_empty())
+        .filter(|text| {
+            let text = text.trim();
+            !text.is_empty() && !text.eq_ignore_ascii_case("unknown")
+        })
         .map(|text| text.to_string())
         .unwrap_or_else(|| infer_provider(&model_id).to_string());
 
@@ -153,5 +156,18 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].model_id, "Claude-Opus-4.6");
         assert_eq!(messages[0].provider_id, "anthropic");
+    }
+
+    #[test]
+    fn parse_usage_row_infers_provider_when_provider_is_unknown() {
+        let input = r#"{"type":"usage","sessionId":"abc","modelId":"MiniMax-M2.7","providerId":"unknown","timestamp":1711200000000,"input":12,"output":4,"cacheRead":2,"cacheWrite":0,"reasoning":1}
+"#;
+
+        let path = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(path.path(), input).unwrap();
+
+        let messages = parse_antigravity_file(path.path());
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].provider_id, "minimax");
     }
 }

@@ -4,30 +4,43 @@
 //! Copilot Chat monitoring. Chat spans and inference log records are preferred;
 //! aggregate agent records are only used as a fallback to avoid double counting.
 
-use super::utils::file_modified_timestamp_ms;
+use super::utils::{file_modified_timestamp_ms, file_within_size_limit, read_line_bytes_limited};
 use super::UnifiedMessage;
 use crate::provider_identity::inferred_provider_from_model;
 use crate::TokenBreakdown;
 use serde_json::{Map, Value};
 use std::collections::{HashMap, HashSet};
-use std::io::{BufRead, BufReader};
+use std::io::BufReader;
 use std::path::Path;
 
 pub fn parse_copilot_file(path: &Path) -> Vec<UnifiedMessage> {
+    if !file_within_size_limit(path) {
+        return Vec::new();
+    }
+
     let file = match std::fs::File::open(path) {
         Ok(file) => file,
         Err(_) => return Vec::new(),
     };
 
     let fallback_timestamp = file_modified_timestamp_ms(path);
+    let mut reader = BufReader::new(file);
+    let mut line_buffer = Vec::with_capacity(4096);
     let mut records = Vec::new();
-    for line in BufReader::new(file).lines() {
-        let line = match line {
-            Ok(line) => line,
+    loop {
+        let bytes_read = match read_line_bytes_limited(&mut reader, &mut line_buffer) {
+            Ok(0) => break,
+            Ok(bytes_read) => bytes_read,
+            Err(_) => break,
+        };
+        if bytes_read == 0 {
+            break;
+        }
+
+        let trimmed = match std::str::from_utf8(&line_buffer) {
+            Ok(line) => line.trim(),
             Err(_) => continue,
         };
-
-        let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
@@ -606,16 +619,17 @@ fn timestamp_ms_from_value(value: &Value) -> Option<i64> {
     let parts = value.as_array()?;
     let seconds = parts.first().and_then(value_as_i64)?;
     let nanos = parts.get(1).and_then(value_as_i64)?;
-    Some(seconds.saturating_mul(1000) + nanos / 1_000_000)
+    seconds.checked_mul(1000)?.checked_add(nanos / 1_000_000)
 }
 
 fn timestamp_ms_from_scalar(value: &Value) -> Option<i64> {
     let raw = value_as_i64(value)?;
-    Some(match raw.abs() {
+    let magnitude = raw.checked_abs()?;
+    Some(match magnitude {
         100_000_000_000_000_000.. => raw / 1_000_000,
         100_000_000_000_000.. => raw / 1_000,
         100_000_000_000.. => raw,
-        _ => raw.saturating_mul(1000),
+        _ => raw.checked_mul(1000)?,
     })
 }
 
@@ -1038,5 +1052,11 @@ mod tests {
             messages[0].dedup_key.as_deref(),
             Some("agent-turn:trace-session-upgrade:4")
         );
+    }
+
+    #[test]
+    fn test_timestamp_helpers_reject_overflow_values() {
+        assert!(timestamp_ms_from_scalar(&serde_json::json!(i64::MIN)).is_none());
+        assert!(timestamp_ms_from_value(&serde_json::json!([i64::MAX, 999_999_999])).is_none());
     }
 }

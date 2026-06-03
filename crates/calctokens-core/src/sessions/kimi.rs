@@ -5,7 +5,7 @@
 
 use super::utils::file_modified_timestamp_ms;
 use super::UnifiedMessage;
-use crate::TokenBreakdown;
+use crate::{provider_identity, TokenBreakdown};
 use serde::Deserialize;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -43,7 +43,7 @@ struct TokenUsage {
 
 /// Default model name when config.json is not available
 const DEFAULT_MODEL: &str = "kimi-for-coding";
-const DEFAULT_PROVIDER: &str = "moonshot";
+const DEFAULT_PROVIDER: &str = "moonshotai";
 
 /// Read model name from ~/.kimi/config.json if available
 fn read_model_from_config(wire_path: &Path) -> String {
@@ -156,7 +156,7 @@ pub fn parse_kimi_file(path: &Path) -> Vec<UnifiedMessage> {
         messages.push(UnifiedMessage::new_with_dedup(
             "kimi",
             model.clone(),
-            DEFAULT_PROVIDER,
+            provider_for_kimi_model(&model),
             session_id.clone(),
             timestamp_ms,
             TokenBreakdown {
@@ -173,6 +173,12 @@ pub fn parse_kimi_file(path: &Path) -> Vec<UnifiedMessage> {
     }
 
     messages
+}
+
+fn provider_for_kimi_model(model: &str) -> String {
+    provider_identity::inferred_provider_from_model(model)
+        .unwrap_or(DEFAULT_PROVIDER)
+        .to_string()
 }
 
 #[cfg(test)]
@@ -199,7 +205,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].client, "kimi");
         assert_eq!(messages[0].model_id, "kimi-for-coding");
-        assert_eq!(messages[0].provider_id, "moonshot");
+        assert_eq!(messages[0].provider_id, "moonshotai");
         assert_eq!(messages[0].tokens.input, 1562);
         assert_eq!(messages[0].tokens.output, 2463);
         assert_eq!(messages[0].tokens.cache_read, 0);
@@ -225,6 +231,27 @@ mod tests {
         assert_eq!(messages[1].tokens.input, 300);
         assert_eq!(messages[1].tokens.output, 400);
         assert_eq!(messages[1].tokens.cache_read, 50);
+    }
+
+    #[test]
+    fn test_parse_kimi_uses_configured_model_for_provider_inference() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let kimi_dir = dir.path().join(".kimi");
+        let session_dir = kimi_dir.join("sessions/group-1/session-1");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        std::fs::write(kimi_dir.join("config.json"), r#"{"model":"MiniMax-M2.7"}"#).unwrap();
+        let wire_path = session_dir.join("wire.jsonl");
+        std::fs::write(
+            &wire_path,
+            r#"{"timestamp": 1770983426.420942, "message": {"type": "StatusUpdate", "payload": {"token_usage": {"input_other": 100, "output": 50, "input_cache_read": 0, "input_cache_creation": 0}, "message_id": "msg-1"}}}"#,
+        )
+        .unwrap();
+
+        let messages = parse_kimi_file(&wire_path);
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].model_id, "MiniMax-M2.7");
+        assert_eq!(messages[0].provider_id, "minimax");
     }
 
     #[test]

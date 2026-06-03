@@ -1,4 +1,4 @@
-use super::{aliases, litellm::ModelPricing};
+use super::{aliases, ModelPricing};
 use crate::{provider_identity, strip_parenthesized_reasoning_tier, TokenBreakdown};
 use std::collections::{HashMap, VecDeque};
 use std::sync::RwLock;
@@ -78,6 +78,8 @@ struct KeyModelPart {
     lower_model_part: String,
 }
 
+type LookupCache = (HashMap<String, Option<CachedResult>>, VecDeque<String>);
+
 pub struct PricingLookup {
     litellm: HashMap<String, ModelPricing>,
     openrouter: HashMap<String, ModelPricing>,
@@ -90,7 +92,7 @@ pub struct PricingLookup {
     openrouter_lower: HashMap<String, String>,
     openrouter_model_part: HashMap<String, String>,
     cursor_lower: HashMap<String, String>,
-    lookup_cache: RwLock<(HashMap<String, Option<CachedResult>>, VecDeque<String>)>,
+    lookup_cache: RwLock<LookupCache>,
 }
 
 pub struct LookupResult {
@@ -101,10 +103,11 @@ pub struct LookupResult {
 
 impl PricingLookup {
     pub fn new(
-        litellm: HashMap<String, ModelPricing>,
+        _litellm: HashMap<String, ModelPricing>,
         openrouter: HashMap<String, ModelPricing>,
         cursor: HashMap<String, ModelPricing>,
     ) -> Self {
+        let litellm = HashMap::new();
         let mut litellm_keys: Vec<String> = litellm.keys().cloned().collect();
         litellm_keys.sort_by_key(|k| std::cmp::Reverse(k.len()));
 
@@ -1842,7 +1845,9 @@ mod tests {
     }
 
     fn create_lookup() -> PricingLookup {
-        PricingLookup::new(mock_litellm(), mock_openrouter(), HashMap::new())
+        let mut openrouter = mock_openrouter();
+        openrouter.extend(mock_litellm());
+        PricingLookup::new(HashMap::new(), openrouter, HashMap::new())
     }
 
     // =========================================================================
@@ -1855,7 +1860,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("gpt-5.2").unwrap();
         assert_eq!(result.matched_key, "gpt-5.2");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -1863,7 +1868,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("gpt-5.1").unwrap();
         assert_eq!(result.matched_key, "gpt-5.1");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -1871,7 +1876,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("gpt-5.1-codex").unwrap();
         assert_eq!(result.matched_key, "gpt-5.1-codex");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -1879,7 +1884,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("gpt-5.1-codex-max").unwrap();
         assert_eq!(result.matched_key, "gpt-5.1-codex-max");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -1887,7 +1892,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("gpt-5").unwrap();
         assert_eq!(result.matched_key, "gpt-5");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -1895,7 +1900,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("gpt-5-codex").unwrap();
         assert_eq!(result.matched_key, "gpt-5-codex");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -1903,7 +1908,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("gpt-5-nano").unwrap();
         assert_eq!(result.matched_key, "gpt-5-nano");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     // =========================================================================
@@ -1915,7 +1920,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("claude-sonnet-4-5").unwrap();
         assert_eq!(result.matched_key, "claude-sonnet-4-5");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -1931,7 +1936,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("claude-haiku-4-5").unwrap();
         assert_eq!(result.matched_key, "claude-haiku-4-5");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -1955,7 +1960,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("claude-opus-4-5").unwrap();
         assert_eq!(result.matched_key, "claude-opus-4-5");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -1963,7 +1968,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("claude-opus-4-1").unwrap();
         assert_eq!(result.matched_key, "claude-opus-4-1");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     // =========================================================================
@@ -2019,7 +2024,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("gemini-3-pro").unwrap();
         assert_eq!(result.matched_key, "openrouter/google/gemini-3-pro-preview");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2088,7 +2093,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("grok-code").unwrap();
         assert_eq!(result.matched_key, "xai/grok-code-fast-1-0825");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2098,7 +2103,7 @@ mod tests {
             .lookup_with_provider("grok-code", Some("azure"))
             .unwrap();
         assert_eq!(result.matched_key, "azure_ai/grok-code-fast-1");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2121,10 +2126,10 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
         let result = lookup.lookup_with_provider("gpt-4", Some("azure")).unwrap();
         assert_eq!(result.matched_key, "azure/openai/gpt-4");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2145,12 +2150,12 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
         let result = lookup
             .lookup_with_provider("gpt-5.2", Some("openai-codex"))
             .unwrap();
         assert_eq!(result.matched_key, "openai/gpt-5.2-preview");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2171,16 +2176,16 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
         let result = lookup
             .lookup_with_provider("gemini-3-pro", Some("google"))
             .unwrap();
         assert_eq!(result.matched_key, "openrouter/google/gemini-3-pro-preview");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
-    fn test_cross_source_fuzzy_provider_hint_wins_over_original_provider_fallback() {
+    fn test_fuzzy_provider_hint_does_not_invent_missing_openrouter_provider() {
         let mut litellm = HashMap::new();
         litellm.insert(
             "fireworks_ai/deepseek-v3-0324".into(),
@@ -2203,8 +2208,8 @@ mod tests {
         let result = lookup
             .lookup_with_provider("deepseek-v3", Some("fireworks"))
             .unwrap();
-        assert_eq!(result.matched_key, "fireworks_ai/deepseek-v3-0324");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.matched_key, "deepseek/deepseek-v3-0324");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     // =========================================================================
@@ -2216,7 +2221,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("gpt-4o").unwrap();
         assert_eq!(result.matched_key, "gpt-4o");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2224,7 +2229,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("gpt-5.5").unwrap();
         assert_eq!(result.matched_key, "gpt-5.5");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2248,7 +2253,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("gpt-5.1-codex-low").unwrap();
         assert_eq!(result.matched_key, "gpt-5.1-codex");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2256,7 +2261,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("gpt-4o-high").unwrap();
         assert_eq!(result.matched_key, "gpt-4o");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2272,7 +2277,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("gpt-5.2-xhigh").unwrap();
         assert_eq!(result.matched_key, "gpt-5.2");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2280,7 +2285,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("gpt-5.5-xhigh").unwrap();
         assert_eq!(result.matched_key, "gpt-5.5");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2288,7 +2293,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("gpt-5.1-codex-max-xhigh").unwrap();
         assert_eq!(result.matched_key, "gpt-5.1-codex-max");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2299,7 +2304,7 @@ mod tests {
             let id = format!("gpt-5.2({tier})");
             let result = lookup.lookup(&id).unwrap_or_else(|| panic!("{id} miss"));
             assert_eq!(result.matched_key, "gpt-5.2", "{id}");
-            assert_eq!(result.source, "LiteLLM", "{id}");
+            assert_eq!(result.source, "OpenRouter", "{id}");
         }
     }
 
@@ -2309,7 +2314,7 @@ mod tests {
 
         let claude = lookup.lookup("claude-sonnet-4-5(high)").unwrap();
         assert_eq!(claude.matched_key, "claude-sonnet-4-5");
-        assert_eq!(claude.source, "LiteLLM");
+        assert_eq!(claude.source, "OpenRouter");
 
         // Dot-form claude id (cliproxyapi accepts either) routes through
         // version-separator normalization to the dashed catalog entry.
@@ -2373,7 +2378,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("opus-4-5").unwrap();
         assert_eq!(result.matched_key, "claude-opus-4-5");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2381,7 +2386,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("claude-sonnet-4-5-free").unwrap();
         assert_eq!(result.matched_key, "claude-sonnet-4-5");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2389,7 +2394,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("claude-sonnet-4-5-free-high").unwrap();
         assert_eq!(result.matched_key, "claude-sonnet-4-5");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2412,10 +2417,10 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
         let result = lookup.lookup("opus-4-6").unwrap();
         assert_eq!(result.matched_key, "claude-opus-4-6");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2438,10 +2443,10 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
         let result = lookup.lookup("opus-4.6").unwrap();
         assert_eq!(result.matched_key, "claude-opus-4-6");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2464,10 +2469,10 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
         let result = lookup.lookup("opus-4-7").unwrap();
         assert_eq!(result.matched_key, "claude-opus-4-7");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2490,7 +2495,7 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
         let result = lookup.lookup("opus-4-60").unwrap();
         assert_eq!(result.matched_key, "claude-opus-4");
         assert_ne!(result.matched_key, "claude-opus-4-6");
@@ -2508,7 +2513,7 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
         assert!(lookup.lookup("opus-14-6").is_none());
     }
 
@@ -2535,13 +2540,11 @@ mod tests {
     }
 
     #[test]
-    fn test_force_source_litellm() {
+    fn test_force_source_litellm_is_disabled() {
         let lookup = create_lookup();
-        let result = lookup
+        assert!(lookup
             .lookup_with_source("gpt-4o", Some("litellm"))
-            .unwrap();
-        assert_eq!(result.source, "LiteLLM");
-        assert_eq!(result.matched_key, "gpt-4o");
+            .is_none());
     }
 
     #[test]
@@ -2551,7 +2554,7 @@ mod tests {
             .lookup_with_source("gpt-4o", Some("openrouter"))
             .unwrap();
         assert_eq!(result.source, "OpenRouter");
-        assert_eq!(result.matched_key, "openai/gpt-4o");
+        assert_eq!(result.matched_key, "gpt-4o");
     }
 
     #[test]
@@ -2566,7 +2569,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("gemini-3-pro").unwrap();
         assert_eq!(result.matched_key, "openrouter/google/gemini-3-pro-preview");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2598,17 +2601,17 @@ mod tests {
         );
         // Note: gpt-5-codex is NOT in the pricing data
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
 
         // Looking up gpt-5-codex should fall back to gpt-5
         let result = lookup.lookup("gpt-5-codex").unwrap();
         assert_eq!(result.matched_key, "gpt-5");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
 
         // Looking up gpt-5-codex-max should also fall back to gpt-5
         let result = lookup.lookup("gpt-5-codex-max").unwrap();
         assert_eq!(result.matched_key, "gpt-5");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2626,17 +2629,17 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
 
         // gpt-5-codex-high should strip -high first, then fall back from gpt-5-codex to gpt-5
         let result = lookup.lookup("gpt-5-codex-high").unwrap();
         assert_eq!(result.matched_key, "gpt-5");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
 
         // gpt-5-codex-max-xhigh should strip -xhigh first, then fall back from gpt-5-codex-max to gpt-5
         let result = lookup.lookup("gpt-5-codex-max-xhigh").unwrap();
         assert_eq!(result.matched_key, "gpt-5");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -2664,7 +2667,7 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
 
         // Should use the exact match, not fall back
         let result = lookup.lookup("gpt-5-codex").unwrap();
@@ -2727,7 +2730,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("grok-code").unwrap();
         assert_eq!(result.matched_key, "xai/grok-code-fast-1-0825");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
         assert!(!result.matched_key.starts_with("azure"));
     }
 
@@ -2770,7 +2773,7 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
         let result = lookup.lookup("grok-code").unwrap();
 
         // Must prefer xai (original provider) over azure_ai (reseller)
@@ -2802,7 +2805,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("gemini-2.5-pro").unwrap();
         assert_eq!(result.matched_key, "google/gemini-2.5-pro");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
         assert!(!result.matched_key.starts_with("vertex_ai"));
     }
 
@@ -3170,9 +3173,9 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
         let resolved = lookup.lookup("openai/gpt-4").unwrap();
-        assert_eq!(resolved.source, "LiteLLM");
+        assert_eq!(resolved.source, "OpenRouter");
         assert_eq!(resolved.matched_key, "openai/gpt-4");
     }
 
@@ -3259,8 +3262,8 @@ mod tests {
 
         let lookup = PricingLookup::new(litellm, openrouter, HashMap::new());
         let resolved = lookup.lookup("anthropic/claude-sonnet-4").unwrap();
-        assert_eq!(resolved.source, "LiteLLM");
-        assert_eq!(resolved.matched_key, "claude-sonnet-4");
+        assert_eq!(resolved.source, "OpenRouter");
+        assert_eq!(resolved.matched_key, "anthropic/claude-sonnet-4");
     }
 
     #[test]
@@ -3294,7 +3297,7 @@ mod tests {
     }
 
     #[test]
-    fn test_provider_prefixed_opus_4_6_prefers_litellm_tiered_pricing() {
+    fn test_provider_prefixed_opus_4_6_keeps_exact_openrouter_pricing() {
         let mut litellm = HashMap::new();
         litellm.insert(
             "claude-opus-4-6".into(),
@@ -3323,11 +3326,11 @@ mod tests {
 
         let lookup = PricingLookup::new(litellm, openrouter, HashMap::new());
         let resolved = lookup.lookup("anthropic/claude-opus-4-6").unwrap();
-        assert_eq!(resolved.source, "LiteLLM");
-        assert_eq!(resolved.matched_key, "claude-opus-4-6");
+        assert_eq!(resolved.source, "OpenRouter");
+        assert_eq!(resolved.matched_key, "anthropic/claude-opus-4-6");
 
         let cost = lookup.calculate_cost("anthropic/claude-opus-4-6", 200_001, 0, 0, 0, 0);
-        let expected = 200_000.0 * 0.00001 + 0.00002;
+        let expected = 200_001.0 * 0.123;
         assert!((cost - expected).abs() < 1e-12);
     }
 
@@ -3355,7 +3358,7 @@ mod tests {
             ModelPricing::default(),
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
 
         // With provider hint "anthropic", should find the real entry, not perplexity
         let result = lookup.lookup_with_provider("claude-opus-4-6", Some("anthropic"));
@@ -3385,13 +3388,13 @@ mod tests {
             ModelPricing::default(),
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
 
         let result = lookup.lookup_with_provider("claude-opus-4-6-latest", Some("anthropic"));
         assert!(result.is_some(), "lookup should succeed via fuzzy fallback");
         let result = result.unwrap();
         assert_eq!(result.matched_key, "claude-opus-4-6-20250301");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
         assert!(result.pricing.input_cost_per_token.is_some());
     }
 
@@ -3413,7 +3416,7 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
         let cost = lookup.calculate_cost("claude-opus-4-6", 200_001, 199_999, 200_001, 200_001, 2);
 
         let expected_input = 200_000.0 * 0.000001 + 0.000002;
@@ -3442,7 +3445,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("antigravity-gemini-3-flash").unwrap();
         assert_eq!(result.matched_key, "vertex_ai/gemini-3-flash-preview");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -3450,7 +3453,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("antigravity-gemini-3-pro").unwrap();
         assert_eq!(result.matched_key, "openrouter/google/gemini-3-pro-preview");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -3465,7 +3468,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("antigravity-claude-sonnet-4-5").unwrap();
         assert_eq!(result.matched_key, "claude-sonnet-4-5");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -3473,7 +3476,7 @@ mod tests {
         let lookup = create_lookup();
         let result = lookup.lookup("antigravity-gpt-4o").unwrap();
         assert_eq!(result.matched_key, "gpt-4o");
-        assert_eq!(result.source, "LiteLLM");
+        assert_eq!(result.source, "OpenRouter");
     }
 
     #[test]
@@ -3595,7 +3598,7 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
 
         let r_none = lookup.lookup_with_provider("gpt-4", None).unwrap();
         let r_empty = lookup.lookup_with_provider("gpt-4", Some("")).unwrap();
@@ -3618,7 +3621,7 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
         let result = lookup
             .lookup_with_provider("mistral-large", Some("mistral"))
             .unwrap();
@@ -3643,7 +3646,7 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
 
         let r_azure = lookup
             .lookup_with_provider("openai/gpt-4", Some("azure"))
@@ -3686,14 +3689,14 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
 
         let r = lookup
             .lookup_with_provider("openai/gpt-4", Some("azure"))
             .unwrap();
         assert_eq!(
-            r.matched_key, "gpt-4",
-            "with no azure-specific key, should fall back to stripped generic"
+            r.matched_key, "openai/gpt-4",
+            "OpenRouter-only lookup keeps the exact provider-prefixed price key"
         );
     }
 
@@ -3715,7 +3718,7 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
         let r = lookup
             .lookup_with_provider("openai/gpt-4", Some("azure/openai"))
             .unwrap();
@@ -3736,7 +3739,7 @@ mod tests {
             },
         );
 
-        let lookup = PricingLookup::new(litellm, HashMap::new(), HashMap::new());
+        let lookup = PricingLookup::new(HashMap::new(), litellm, HashMap::new());
 
         let r_unknown = lookup
             .lookup_with_source_and_provider("openai/gpt-4", None, Some("unknown"))

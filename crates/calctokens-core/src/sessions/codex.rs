@@ -4,10 +4,11 @@
 //! Note: This parser has stateful logic to track model and delta calculations.
 
 use super::utils::{
-    extract_i64, extract_string, file_modified_timestamp_ms, parse_timestamp_value,
+    extract_i64, extract_string, file_modified_timestamp_ms, file_within_size_limit,
+    parse_timestamp_value, read_line_bytes_limited,
 };
 use super::{normalize_workspace_key, workspace_label_from_key, UnifiedMessage};
-use crate::TokenBreakdown;
+use crate::{provider_identity, TokenBreakdown};
 use serde::Deserialize;
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
@@ -227,15 +228,14 @@ fn parse_codex_reader<R: BufRead>(
     let mut messages = Vec::with_capacity(64);
     let mut fallback_timestamp_indices = Vec::new();
     let mut buffer = Vec::with_capacity(4096);
-    let mut line = String::with_capacity(4096);
+    let mut line = Vec::with_capacity(4096);
     let mut consumed_offset = start_offset;
     let mut parse_succeeded = true;
     let mut pending_model_messages = Vec::new();
     let mut unresolved_model_events = false;
 
     loop {
-        line.clear();
-        let bytes_read = match reader.read_line(&mut line) {
+        let bytes_read = match read_line_bytes_limited(&mut reader, &mut line) {
             Ok(0) => break,
             Ok(bytes_read) => bytes_read,
             Err(_) => {
@@ -245,7 +245,13 @@ fn parse_codex_reader<R: BufRead>(
         };
         consumed_offset += bytes_read as u64;
 
-        let trimmed = line.trim();
+        let trimmed = match std::str::from_utf8(&line) {
+            Ok(line) => line.trim(),
+            Err(_) => {
+                parse_succeeded = false;
+                continue;
+            }
+        };
         if trimmed.is_empty() {
             continue;
         }
@@ -440,11 +446,13 @@ fn parse_codex_reader<R: BufRead>(
                         state.session_agent.clone()
                     };
 
-                    let provider = state.session_provider.as_deref().unwrap_or("openai");
+                    let model_id = model.clone().unwrap_or_else(|| "unknown".to_string());
+                    let provider =
+                        provider_for_codex_model(&model_id, state.session_provider.as_deref());
 
                     let mut message = UnifiedMessage::new_with_agent(
                         "codex",
-                        model.clone().unwrap_or_else(|| "unknown".to_string()),
+                        model_id,
                         provider,
                         session_id.to_string(),
                         timestamp,
@@ -588,6 +596,14 @@ fn flush_pending_model_messages(
             set_codex_dedup_key(&mut message, model);
         }
         message.model_id = model.to_string();
+        if let Some(provider) = provider_identity::inferred_provider_from_model(model) {
+            if message.provider_id.is_empty()
+                || message.provider_id == "unknown"
+                || message.provider_id == "openai"
+            {
+                message.provider_id = provider.to_string();
+            }
+        }
         messages.push(message);
         if used_fallback_timestamp {
             fallback_timestamp_indices.push(messages.len() - 1);
@@ -616,6 +632,10 @@ fn flush_pending_model_messages_as_unknown(
 
 /// Parse a Codex JSONL file with stateful tracking
 pub fn parse_codex_file(path: &Path) -> Vec<UnifiedMessage> {
+    if !file_within_size_limit(path) {
+        return Vec::new();
+    }
+
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(_) => return Vec::new(),
@@ -674,6 +694,17 @@ pub(crate) fn parse_codex_file_incremental(
     start_offset: u64,
     state: CodexParseState,
 ) -> ParsedCodexFile {
+    if !file_within_size_limit(path) {
+        return ParsedCodexFile {
+            messages: Vec::new(),
+            fallback_timestamp_indices: Vec::new(),
+            consumed_offset: start_offset,
+            parse_succeeded: false,
+            unresolved_model_events: false,
+            state,
+        };
+    }
+
     let mut file = match std::fs::File::open(path) {
         Ok(file) => file,
         Err(_) => {
@@ -758,7 +789,7 @@ fn parse_codex_headless_line(
         return None;
     }
 
-    let provider = session_provider.unwrap_or("openai");
+    let provider = provider_for_codex_model(&model, session_provider);
     let agent = if session_is_headless {
         Some("headless".to_string())
     } else {
@@ -784,6 +815,15 @@ fn parse_codex_headless_line(
         ),
         usage.timestamp_ms.is_none(),
     ))
+}
+
+fn provider_for_codex_model(model: &str, session_provider: Option<&str>) -> String {
+    session_provider
+        .map(str::trim)
+        .filter(|provider| !provider.is_empty() && !provider.eq_ignore_ascii_case("unknown"))
+        .map(str::to_string)
+        .or_else(|| provider_identity::inferred_provider_from_model(model).map(str::to_string))
+        .unwrap_or_else(|| "openai".to_string())
 }
 
 fn extract_headless_usage(value: &Value) -> Option<CodexHeadlessUsage> {
@@ -883,25 +923,20 @@ mod tests {
 
     impl BufRead for FailAfterFirstLine {
         fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
-            self.inner.fill_buf()
-        }
-
-        fn consume(&mut self, amt: usize) {
-            self.inner.consume(amt);
-        }
-
-        fn read_line(&mut self, buf: &mut String) -> std::io::Result<usize> {
             if self.fail_next_read {
                 return Err(Error::new(
                     ErrorKind::InvalidData,
                     "synthetic line decode failure",
                 ));
             }
-            let bytes_read = self.inner.read_line(buf)?;
-            if bytes_read > 0 {
+            self.inner.fill_buf()
+        }
+
+        fn consume(&mut self, amt: usize) {
+            self.inner.consume(amt);
+            if amt > 0 {
                 self.fail_next_read = true;
             }
-            Ok(bytes_read)
         }
     }
 
@@ -917,6 +952,18 @@ mod tests {
         assert_eq!(messages[0].tokens.input, 100);
         assert_eq!(messages[0].tokens.output, 30);
         assert_eq!(messages[0].tokens.cache_read, 20);
+    }
+
+    #[test]
+    fn test_headless_usage_infers_provider_from_model_without_session_provider() {
+        let content = r#"{"type":"turn.completed","model":"MiniMax-M2.7","usage":{"input_tokens":120,"cached_input_tokens":20,"output_tokens":30}}"#;
+        let file = create_test_file(content);
+
+        let messages = parse_codex_file(file.path());
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].model_id, "MiniMax-M2.7");
+        assert_eq!(messages[0].provider_id, "minimax");
     }
 
     #[test]

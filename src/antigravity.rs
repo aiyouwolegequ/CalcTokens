@@ -96,7 +96,7 @@ fn get_agy_cli_sessions() -> Vec<AgySessionInfo> {
         if let Ok(entries) = std::fs::read_dir(&conversations_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().map_or(false, |e| e == "pb") {
+                if path.extension().is_some_and(|e| e == "pb") {
                     if let Some(session_id) = path.file_stem().and_then(|s| s.to_str()) {
                         let (mtime_ms, size) = std::fs::metadata(&path)
                             .ok()
@@ -137,7 +137,7 @@ fn get_agy_cli_sessions() -> Vec<AgySessionInfo> {
 
 fn get_active_processes() -> Vec<ProcessCandidate> {
     let mut candidates = Vec::new();
-    let output = match Command::new("ps").args(&["-ww", "-eo", "pid,ppid,args"]).output() {
+    let output = match Command::new("ps").args(["-ww", "-eo", "pid,ppid,args"]).output() {
         Ok(out) => out,
         Err(_) => return candidates,
     };
@@ -170,14 +170,12 @@ fn get_active_processes() -> Vec<ProcessCandidate> {
         }
         
         let lower_args = args.to_lowercase();
-        let mut is_agy = false;
-        
         let args_split: Vec<&str> = args.split_whitespace().collect();
-        if args_split.contains(&"agy") || args.contains("/agy") || args.ends_with("agy") {
-            is_agy = true;
-        } else if lower_args.contains("language_server") && (lower_args.contains("antigravity") || lower_args.contains("gemini")) {
-            is_agy = true;
-        }
+        let is_agy = args_split.contains(&"agy")
+            || args.contains("/agy")
+            || args.ends_with("agy")
+            || (lower_args.contains("language_server")
+                && (lower_args.contains("antigravity") || lower_args.contains("gemini")));
         
         if is_agy {
             let csrf_token = extract_csrf_token(args);
@@ -192,8 +190,8 @@ fn extract_csrf_token(args: &str) -> String {
     if let Some(idx) = lower.find("--csrf_token") {
         let tail = &args[idx + "--csrf_token".len()..];
         let trimmed_tail = tail.trim_start();
-        if trimmed_tail.starts_with('=') {
-            let val = trimmed_tail[1..].trim_start();
+        if let Some(stripped) = trimmed_tail.strip_prefix('=') {
+            let val = stripped.trim_start();
             val.split_whitespace().next().unwrap_or("").to_string()
         } else {
             trimmed_tail.split_whitespace().next().unwrap_or("").to_string()
@@ -273,7 +271,7 @@ fn append_json_line_bounded_with_limits(
 fn get_all_listening_ports() -> Vec<(u32, u16)> {
     let mut result = Vec::new();
     let output = match Command::new("lsof")
-        .args(&["-iTCP", "-sTCP:LISTEN", "-Pan"])
+        .args(["-iTCP", "-sTCP:LISTEN", "-Pan"])
         .output()
     {
         Ok(out) => out,
@@ -451,7 +449,8 @@ fn to_safe_i64(value: Option<&Value>) -> i64 {
             }
             0
         }
-        Value::Bool(b) => if *b { 1 } else { 0 },
+        Value::Bool(true) => 1,
+        Value::Bool(false) => 0,
         _ => 0,
     }
 }
@@ -503,10 +502,7 @@ fn process_trajectory(
         Err(_) => return None,
     };
     
-    let metadata = match data.get("generatorMetadata").and_then(|v| v.as_array()) {
-        Some(arr) => arr,
-        None => return None,
-    };
+    let metadata = data.get("generatorMetadata").and_then(|v| v.as_array())?;
 
     if metadata.len() > MAX_METADATA_ITEMS_PER_SESSION {
         return None;
@@ -852,10 +848,10 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     for (session_id, old_sess) in old_sessions {
-        if !new_sessions.contains_key(&session_id) {
+        if let std::collections::hash_map::Entry::Vacant(entry) = new_sessions.entry(session_id) {
             let filepath = cache_dir.join(&old_sess.artifact_path);
             if filepath.exists() {
-                new_sessions.insert(session_id, old_sess);
+                entry.insert(old_sess);
             }
         }
     }

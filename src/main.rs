@@ -92,6 +92,15 @@ struct Stats {
     input: i64, output: i64, cache_read: i64, cache_write: i64, cost: f64,
 }
 
+struct HistoryTotals {
+    input: i64,
+    output: i64,
+    cache_read: i64,
+    cache_write: i64,
+    cost: f64,
+    rmb: f64,
+}
+
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 struct HistoryRecord {
@@ -237,24 +246,6 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
 
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn validate_cny_rate_accepts_plausible_rate() {
-        assert_eq!(validate_cny_rate(7.2), Some(7.2));
-    }
-
-    #[test]
-    fn validate_cny_rate_rejects_zero_negative_and_extreme_rates() {
-        assert!(validate_cny_rate(0.0).is_none());
-        assert!(validate_cny_rate(-1.0).is_none());
-        assert!(validate_cny_rate(1000.0).is_none());
-    }
-}
-
 /// One-time backfill: compute canonical_id for messages that don't have one.
 /// resolve_alias() maps raw/pretty display names to the canonical pricing key.
 fn backfill_canonical_ids(conn: &Connection) -> rusqlite::Result<()> {
@@ -312,15 +303,22 @@ fn get_last_record(conn: &Connection, range: &str) -> rusqlite::Result<Option<Hi
     } else { Ok(None) }
 }
 
-fn save_record(conn: &Connection, range: &str, total_in: i64, total_out: i64,
-               total_cache_read: i64, total_cache_write: i64, total_cost: f64,
-               total_rmb: f64) -> rusqlite::Result<()> {
+fn save_record(conn: &Connection, range: &str, totals: &HistoryTotals) -> rusqlite::Result<()> {
     let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string();
     conn.execute(
         "INSERT INTO history (timestamp, range, total_input, total_output, total_cache_read,
                               total_cache_write, total_cost, total_rmb)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![timestamp, range, total_in as f64, total_out as f64, total_cache_read as f64, total_cache_write as f64, total_cost, total_rmb],
+        params![
+            timestamp,
+            range,
+            totals.input as f64,
+            totals.output as f64,
+            totals.cache_read as f64,
+            totals.cache_write as f64,
+            totals.cost,
+            totals.rmb
+        ],
     )?;
     Ok(())
 }
@@ -1294,8 +1292,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !args.today && !args.month && !args.all && args.since.is_none() && args.until.is_none() && args.year.is_none() {
         let client_tag = if args.client.is_empty() { "".to_string() } else { args.client.join(",") };
         let cache_key = format!("default_{}", client_tag);
-        save_record(&conn, &cache_key, report.total_input, report.total_output,
-                    report.total_cache_read, report.total_cache_write, report.total_cost, report.total_cost * exchange)?;
+        save_record(
+            &conn,
+            &cache_key,
+            &HistoryTotals {
+                input: report.total_input,
+                output: report.total_output,
+                cache_read: report.total_cache_read,
+                cache_write: report.total_cache_write,
+                cost: report.total_cost,
+                rmb: report.total_cost * exchange,
+            },
+        )?;
     }
 
     if args.json_output {
@@ -1316,4 +1324,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_cny_rate_accepts_plausible_rate() {
+        assert_eq!(validate_cny_rate(7.2), Some(7.2));
+    }
+
+    #[test]
+    fn validate_cny_rate_rejects_zero_negative_and_extreme_rates() {
+        assert!(validate_cny_rate(0.0).is_none());
+        assert!(validate_cny_rate(-1.0).is_none());
+        assert!(validate_cny_rate(1000.0).is_none());
+    }
 }

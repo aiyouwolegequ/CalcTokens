@@ -6,6 +6,8 @@ AI coding assistant token usage tracker with human-readable K/M/B/T units & real
 
 - **OpenRouter-standard model naming**: models canonicalized and displayed with unified pretty names
 - **`calctokens --upgrade`**: sync OpenRouter model metadata + exchange rates to local DB
+- **OpenRouter-only pricing**: pricing lookup uses OpenRouter as the reference source while agent logs preserve raw model IDs
+- **Agent model provider inference**: detects third-party models used inside coding agents, including DeepSeek, MiniMax, and Kimi/Moonshot
 - **Canonical ID layer**: raw `model_id` preserved for audit, `canonical_id` used for aggregation — historical data never rewritten
 - All messages stored permanently in `~/.calctokens.db` — independent of source log files
 - Pre-aggregated `daily_summary` for fast model/monthly reports

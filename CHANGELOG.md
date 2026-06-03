@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.3] - 2026-06-03
+
+### Changed
+- **OpenRouter-only Pricing**: Removed the LiteLLM pricing module from the pricing pipeline. Pricing now uses OpenRouter as the single reference source.
+- **Agent Model Attribution**: Improved provider inference for models used through Claude Code, OpenCode, Codex, Gemini CLI, Kimi CLI, MiniMax CLI, and Antigravity, including DeepSeek, MiniMax, and Kimi/Moonshot models.
+
+### Fixed
+- **Model Identification Accuracy**: Improved model normalization and provider attribution to avoid collapsing newer or third-party model IDs into older same-family aliases.
+- **Security Hardening**: Added bounds and validation across Antigravity sync responses, OpenRouter model sync fanout, local session log parsing, parser arithmetic, environment-derived roots, Claude sidechain parent lookup, exchange-rate metadata, and pricing cache reads.
+- **Validation Cleanup**: Resolved root binary clippy findings so `cargo clippy --all-targets -- -D warnings` passes for the full workspace.
+
 ## [1.0.2] - 2026-05-29
 
 ### Fixed

@@ -330,6 +330,13 @@ pub fn built_in_extra_scan_paths_for(
         ));
     }
 
+    if enabled.contains(&ClientId::Kimi) {
+        paths.push((
+            ClientId::Kimi,
+            PathBuf::from(format!("{}/.kimi-code/sessions", home_dir)),
+        ));
+    }
+
     paths
 }
 

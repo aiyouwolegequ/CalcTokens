@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.5] - 2026-06-05
+
+### Added
+- **Kimi Code Support**: Added parsing support for the new Kimi Code CLI (v0.10.1+) which stores data in `~/.kimi-code/sessions/` using a new `usage.record` JSONL format.
+- **Model Aliases**: Added `kimi-code/kimi-for-coding` mapping to `Kimi-K2.6` (`kimi-k2.6`) for correct pricing and display.
+- **Robust Path & Config Handling**: Enhanced session UUID extraction to parse nested agent paths (`/agents/main/wire.jsonl`) and implemented recursive ancestor configuration lookup to parse both TOML config (`config.toml`) and JSON config (`config.json`).
+
 ## [1.0.4] - 2026-06-04
 
 ### Fixed

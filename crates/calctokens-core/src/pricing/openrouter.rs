@@ -177,8 +177,14 @@ fn collect_model_fallbacks(
                 Some(ModelPricing {
                     input_cost_per_token: Some(input),
                     output_cost_per_token: Some(output),
-                    cache_read_input_token_cost: p.input_cache_read.as_ref().and_then(|s| parse_price(s)),
-                    cache_creation_input_token_cost: p.input_cache_write.as_ref().and_then(|s| parse_price(s)),
+                    cache_read_input_token_cost: p
+                        .input_cache_read
+                        .as_ref()
+                        .and_then(|s| parse_price(s)),
+                    cache_creation_input_token_cost: p
+                        .input_cache_write
+                        .as_ref()
+                        .and_then(|s| parse_price(s)),
                     ..Default::default()
                 })
             });

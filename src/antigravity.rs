@@ -1,3 +1,5 @@
+use reqwest::blocking::{Client, Response};
+use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -6,8 +8,6 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::UNIX_EPOCH;
-use reqwest::blocking::{Client, Response};
-use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 
 const MAX_HTTP_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_HEARTBEAT_RESPONSE_BYTES: u64 = 64 * 1024;
@@ -86,7 +86,8 @@ struct AgySessionInfo {
 /// Used as a fallback when GetAllCascadeTrajectories returns empty.
 fn get_agy_cli_sessions() -> Vec<AgySessionInfo> {
     let data_dirs = get_agy_data_dirs();
-    let mut sessions_map: std::collections::HashMap<String, AgySessionInfo> = std::collections::HashMap::new();
+    let mut sessions_map: std::collections::HashMap<String, AgySessionInfo> =
+        std::collections::HashMap::new();
 
     for data_dir in data_dirs {
         let conversations_dir = data_dir.join("conversations");
@@ -101,7 +102,9 @@ fn get_agy_cli_sessions() -> Vec<AgySessionInfo> {
                         let (mtime_ms, size) = std::fs::metadata(&path)
                             .ok()
                             .map(|m| {
-                                let mt = m.modified().ok()
+                                let mt = m
+                                    .modified()
+                                    .ok()
                                     .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                                     .map(|d| d.as_millis() as i64)
                                     .unwrap_or(0);
@@ -109,23 +112,29 @@ fn get_agy_cli_sessions() -> Vec<AgySessionInfo> {
                                 (mt, sz)
                             })
                             .unwrap_or((0, 0));
-                        
+
                         let session_id_str = session_id.to_string();
                         // De-duplicate: keep the one with the latest mtime_ms
                         if let Some(existing) = sessions_map.get(&session_id_str) {
                             if mtime_ms > existing.pb_mtime_ms {
-                                sessions_map.insert(session_id_str.clone(), AgySessionInfo {
+                                sessions_map.insert(
+                                    session_id_str.clone(),
+                                    AgySessionInfo {
+                                        session_id: session_id_str,
+                                        pb_mtime_ms: mtime_ms,
+                                        pb_size: size,
+                                    },
+                                );
+                            }
+                        } else {
+                            sessions_map.insert(
+                                session_id_str.clone(),
+                                AgySessionInfo {
                                     session_id: session_id_str,
                                     pb_mtime_ms: mtime_ms,
                                     pb_size: size,
-                                });
-                            }
-                        } else {
-                            sessions_map.insert(session_id_str.clone(), AgySessionInfo {
-                                session_id: session_id_str,
-                                pb_mtime_ms: mtime_ms,
-                                pb_size: size,
-                            });
+                                },
+                            );
                         }
                     }
                 }
@@ -137,38 +146,41 @@ fn get_agy_cli_sessions() -> Vec<AgySessionInfo> {
 
 fn get_active_processes() -> Vec<ProcessCandidate> {
     let mut candidates = Vec::new();
-    let output = match Command::new("ps").args(["-ww", "-eo", "pid,ppid,args"]).output() {
+    let output = match Command::new("ps")
+        .args(["-ww", "-eo", "pid,ppid,args"])
+        .output()
+    {
         Ok(out) => out,
         Err(_) => return candidates,
     };
-    
+
     let output_str = String::from_utf8_lossy(&output.stdout);
     let my_pid = std::process::id();
-    
+
     for line in output_str.lines().skip(1) {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
-        
+
         let parts: Vec<&str> = trimmed.splitn(3, |c: char| c.is_whitespace()).collect();
         if parts.len() < 3 {
             continue;
         }
-        
+
         let pid_str = parts[0];
         let _ppid_str = parts[1];
         let args = parts[2];
-        
+
         let pid = match pid_str.parse::<u32>() {
             Ok(p) => p,
             Err(_) => continue,
         };
-        
+
         if pid == my_pid {
             continue;
         }
-        
+
         let lower_args = args.to_lowercase();
         let args_split: Vec<&str> = args.split_whitespace().collect();
         let is_agy = args_split.contains(&"agy")
@@ -176,7 +188,7 @@ fn get_active_processes() -> Vec<ProcessCandidate> {
             || args.ends_with("agy")
             || (lower_args.contains("language_server")
                 && (lower_args.contains("antigravity") || lower_args.contains("gemini")));
-        
+
         if is_agy {
             let csrf_token = extract_csrf_token(args);
             candidates.push(ProcessCandidate { pid, csrf_token });
@@ -194,7 +206,11 @@ fn extract_csrf_token(args: &str) -> String {
             let val = stripped.trim_start();
             val.split_whitespace().next().unwrap_or("").to_string()
         } else {
-            trimmed_tail.split_whitespace().next().unwrap_or("").to_string()
+            trimmed_tail
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .to_string()
         }
     } else {
         "".to_string()
@@ -298,7 +314,8 @@ fn get_all_listening_ports() -> Vec<(u32, u16)> {
 }
 
 fn get_listening_ports(pid: u32, all_ports: &[(u32, u16)]) -> Vec<u16> {
-    all_ports.iter()
+    all_ports
+        .iter()
         .filter(|(p, _)| *p == pid)
         .map(|(_, port)| *port)
         .collect()
@@ -333,8 +350,14 @@ fn probe_heartbeat(client: &Client, port: u16, csrf_token: &str) -> Option<(Stri
     }
 
     let payload = json!({"uuid": "00000000-0000-0000-0000-000000000000"});
-    let http_url = format!("http://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/Heartbeat", port);
-    let https_url = format!("https://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/Heartbeat", port);
+    let http_url = format!(
+        "http://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/Heartbeat",
+        port
+    );
+    let https_url = format!(
+        "https://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/Heartbeat",
+        port
+    );
 
     // Probe HTTP and HTTPS in parallel — the agy daemon listens on one protocol per port.
     let (tx, rx) = std::sync::mpsc::channel();
@@ -348,10 +371,16 @@ fn probe_heartbeat(client: &Client, port: u16, csrf_token: &str) -> Option<(Stri
         std::thread::spawn(move || {
             let result = (|| {
                 let res = cl.post(&url).headers(hdrs).json(&pld).send().ok()?;
-                if !res.status().is_success() { return None; }
+                if !res.status().is_success() {
+                    return None;
+                }
                 let body = read_limited_response(res, MAX_HEARTBEAT_RESPONSE_BYTES).ok()?;
                 let text = String::from_utf8_lossy(&body);
-                if text.contains("lastExtensionHeartbeat") { Some(protocol.to_string()) } else { None }
+                if text.contains("lastExtensionHeartbeat") {
+                    Some(protocol.to_string())
+                } else {
+                    None
+                }
             })();
             let _ = tx.send(result);
         });
@@ -417,12 +446,14 @@ fn parse_timestamp(val: Option<&Value>) -> i64 {
 }
 
 fn resolve_model_id(chat_model: &Value) -> String {
-    let mut model_id = chat_model.get("responseModel")
+    let mut model_id = chat_model
+        .get("responseModel")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .trim();
     if model_id.is_empty() {
-        model_id = chat_model.get("model")
+        model_id = chat_model
+            .get("model")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .trim();
@@ -487,34 +518,39 @@ fn process_trajectory(
         protocol, port
     );
     let payload = json!({ "cascadeId": session_id });
-    
-    let res = match client.post(&url).headers(headers.clone()).json(&payload).send() {
+
+    let res = match client
+        .post(&url)
+        .headers(headers.clone())
+        .json(&payload)
+        .send()
+    {
         Ok(r) => r,
         Err(_) => return None,
     };
-    
+
     if !res.status().is_success() {
         return None;
     }
-    
+
     let data: Value = match parse_json_response_limited(res) {
         Ok(d) => d,
         Err(_) => return None,
     };
-    
+
     let metadata = data.get("generatorMetadata").and_then(|v| v.as_array())?;
 
     if metadata.len() > MAX_METADATA_ITEMS_PER_SESSION {
         return None;
     }
-    
+
     let mut jsonl_lines = Vec::new();
     let mut jsonl_bytes = 0usize;
-    
+
     for meta in metadata {
         let chat_model = meta.get("chatModel").unwrap_or(meta);
         let model_id = resolve_model_id(chat_model);
-        
+
         let mut created_at_ms = parse_timestamp(
             chat_model
                 .get("chatStartMetadata")
@@ -523,7 +559,7 @@ fn process_trajectory(
         if created_at_ms == 0 {
             created_at_ms = parse_timestamp(chat_model.get("createdAt"));
         }
-        
+
         let meta_line = json!({
             "type": "session_meta",
             "sessionId": session_id,
@@ -533,7 +569,7 @@ fn process_trajectory(
         if !append_json_line_bounded(&mut jsonl_lines, &mut jsonl_bytes, meta_line) {
             return None;
         }
-        
+
         let retry_infos = chat_model
             .get("retryInfos")
             .and_then(|v| v.as_array())
@@ -554,13 +590,11 @@ fn process_trajectory(
             let response_out = to_safe_i64(usage.get("responseOutputTokens"));
             let cache_read = to_safe_i64(usage.get("cacheReadTokens"));
 
-            let (out, reasoning) = resolve_output_and_reasoning(raw_out, raw_reasoning, response_out);
+            let (out, reasoning) =
+                resolve_output_and_reasoning(raw_out, raw_reasoning, response_out);
 
-            let mut timestamp_ms = parse_timestamp(
-                usage
-                    .get("createdAt")
-                    .or_else(|| usage.get("timestamp")),
-            );
+            let mut timestamp_ms =
+                parse_timestamp(usage.get("createdAt").or_else(|| usage.get("timestamp")));
             if timestamp_ms == 0 {
                 timestamp_ms = created_at_ms;
             }
@@ -599,9 +633,11 @@ fn process_trajectory(
                 let cache_read = to_safe_i64(usage.get("cacheReadTokens"));
                 let cache_write = to_safe_i64(usage.get("cacheWriteTokens"));
 
-                let (out, reasoning) = resolve_output_and_reasoning(raw_out, raw_reasoning, response_out);
+                let (out, reasoning) =
+                    resolve_output_and_reasoning(raw_out, raw_reasoning, response_out);
 
-                if !(inp == 0 && out == 0 && cache_read == 0 && cache_write == 0 && reasoning == 0) {
+                if !(inp == 0 && out == 0 && cache_read == 0 && cache_write == 0 && reasoning == 0)
+                {
                     let usage_line = json!({
                         "type": "usage",
                         "sessionId": session_id,
@@ -621,25 +657,28 @@ fn process_trajectory(
             }
         }
     }
-    
+
     if jsonl_lines.is_empty() {
         return None;
     }
-    
+
     let content = jsonl_lines.join("\n") + "\n";
-    
+
     let sanitized = sanitize_session_id(session_id);
     let session_hash = sha256_hash(session_id);
     let filename = format!("{}-{}.jsonl", sanitized, &session_hash[..16]);
     let filepath = sessions_dir.join(&filename);
-    
+
     if let Ok(mut f) = File::create(&filepath) {
         if f.write_all(content.as_bytes()).is_ok() {
             let file_hash = sha256_hash(&content);
-            return Some((format!("sessions/{}", filename), format!("sha256:{}", file_hash)));
+            return Some((
+                format!("sessions/{}", filename),
+                format!("sha256:{}", file_hash),
+            ));
         }
     }
-    
+
     None
 }
 
@@ -663,7 +702,7 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
             let client = client.clone();
             let csrf_token = cand.csrf_token.clone();
             let pid = cand.pid;
-            
+
             let handle = std::thread::spawn(move || {
                 probe_heartbeat(&client, port, &csrf_token)
                     .map(|(protocol, headers)| (protocol, port, headers, pid))
@@ -683,20 +722,20 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
             active_endpoints.push((protocol, port, headers, fingerprint));
         }
     }
-    
+
     if active_endpoints.is_empty() {
         if has_candidates {
             eprintln!("Warning: agy/Antigravity process is running, but no active ports could be probed. Heartbeat verification failed.");
         }
         return Ok(());
     }
-    
+
     let cache_dir = get_cache_dir();
     let sessions_dir = cache_dir.join("sessions");
     std::fs::create_dir_all(&sessions_dir)?;
-    
+
     let manifest_path = cache_dir.join("manifest.json");
-    
+
     let mut old_sessions = std::collections::HashMap::new();
     if manifest_path.exists() {
         if let Ok(content) = std::fs::read_to_string(&manifest_path) {
@@ -707,24 +746,36 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    
+
     let mut new_sessions = std::collections::HashMap::new();
-    
+
     for (protocol, port, headers, fingerprint) in &active_endpoints {
         let url = format!("{}://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", protocol, port);
-        let res = match client.post(&url).headers(headers.clone()).json(&json!({})).send() {
+        let res = match client
+            .post(&url)
+            .headers(headers.clone())
+            .json(&json!({}))
+            .send()
+        {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("Warning: Failed to connect to GetAllCascadeTrajectories on port {}: {}", port, e);
+                eprintln!(
+                    "Warning: Failed to connect to GetAllCascadeTrajectories on port {}: {}",
+                    port, e
+                );
                 continue;
             }
         };
-        
+
         if !res.status().is_success() {
-            eprintln!("Warning: GetAllCascadeTrajectories returned HTTP status {} on port {}", res.status(), port);
+            eprintln!(
+                "Warning: GetAllCascadeTrajectories returned HTTP status {} on port {}",
+                res.status(),
+                port
+            );
             continue;
         }
-        
+
         let data: Value = match parse_json_response_limited(res) {
             Ok(d) => d,
             Err(e) => {
@@ -732,7 +783,7 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
         };
-        
+
         let trajectories = match data.get("trajectorySummaries").and_then(|v| v.as_object()) {
             Some(obj) => obj,
             None => {
@@ -750,11 +801,14 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
             );
             continue;
         }
-        
+
         for (session_id, summary) in trajectories {
             let last_modified_ms = parse_timestamp(summary.get("lastModifiedTime"));
-            let step_count = summary.get("stepCount").and_then(|v| v.as_i64()).unwrap_or(0);
-            
+            let step_count = summary
+                .get("stepCount")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+
             if let Some(old_sess) = old_sessions.get(session_id) {
                 if old_sess.step_count == step_count
                     && old_sess.last_modified_ms == last_modified_ms
@@ -764,15 +818,10 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
                     continue;
                 }
             }
-            
-            if let Some((artifact_path, artifact_hash)) = process_trajectory(
-                &client,
-                session_id,
-                protocol,
-                *port,
-                headers,
-                &sessions_dir,
-            ) {
+
+            if let Some((artifact_path, artifact_hash)) =
+                process_trajectory(&client, session_id, protocol, *port, headers, &sessions_dir)
+            {
                 new_sessions.insert(
                     session_id.clone(),
                     SessionManifestEntry {
@@ -787,7 +836,7 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    
+
     // ── agy CLI fallback: when GetAllCascadeTrajectories returns empty ──
     // agy CLI (v1.0.1+) stores conversations as .pb files but the list endpoint
     // returns {}. Discover sessions from the filesystem and fetch them directly
@@ -804,7 +853,8 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
         }
         // Prefer an agy-specific endpoint (no CSRF token), fall back to any active endpoint
         let fallback_endpoint = active_endpoints.first().cloned();
-        let agy_endpoint = active_endpoints.iter()
+        let agy_endpoint = active_endpoints
+            .iter()
             .find(|(_, _, headers, _)| !headers.contains_key("X-Codeium-Csrf-Token"))
             .cloned()
             .or(fallback_endpoint);
@@ -855,7 +905,7 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    
+
     let now_utc = chrono::Utc::now().to_rfc3339();
     let manifest = Manifest {
         version: 1,
@@ -863,13 +913,13 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
         connections,
         sessions: new_sessions.into_values().collect(),
     };
-    
+
     if let Ok(mut f) = File::create(&manifest_path) {
         if let Ok(json_str) = serde_json::to_string_pretty(&manifest) {
             let _ = f.write_all(json_str.as_bytes());
         }
     }
-    
+
     Ok(())
 }
 

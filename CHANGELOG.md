@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.6] - 2026-06-07
+
+### Fixed
+- **Timezone Mismatch in Date Filtering**: Changed query filters and boundary calculations in `calctokens` from `Utc::now()` to `Local::now()`. This ensures that recent token usage (e.g. messages generated shortly after midnight local time) aligns correctly with the local date stored in the database, preventing them from being hidden in "today's" usage report.
+
 ## [1.0.5] - 2026-06-05
 
 ### Added

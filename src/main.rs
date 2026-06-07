@@ -2,7 +2,7 @@ use calctokens_core::{
     pricing, ClientId, HourlyReport, HourlyUsage, LocalParseOptions, ModelReport, ModelUsage,
     MonthlyReport, MonthlyUsage,
 };
-use chrono::{Datelike, Utc};
+use chrono::{Datelike, Local, Utc};
 use clap::Parser;
 use reqwest::blocking::Client;
 use rusqlite::{params, Connection};
@@ -320,7 +320,7 @@ fn backfill_canonical_ids(conn: &Connection) -> rusqlite::Result<()> {
 }
 
 fn get_cached_exchange(conn: &Connection, currency: &str) -> rusqlite::Result<Option<f64>> {
-    let today = Utc::now().format("%Y-%m-%d").to_string();
+    let today = Local::now().format("%Y-%m-%d").to_string();
     let mut stmt =
         conn.prepare("SELECT rate FROM exchange_cache WHERE currency = ? AND fetched_date = ?")?;
     let mut rows = stmt.query(params![currency, today])?;
@@ -332,7 +332,7 @@ fn get_cached_exchange(conn: &Connection, currency: &str) -> rusqlite::Result<Op
 }
 
 fn save_exchange_cache(conn: &Connection, currency: &str, rate: f64) -> rusqlite::Result<()> {
-    let today = Utc::now().format("%Y-%m-%d").to_string();
+    let today = Local::now().format("%Y-%m-%d").to_string();
     conn.execute(
         "INSERT OR REPLACE INTO exchange_cache (currency, rate, fetched_date) VALUES (?1, ?2, ?3)",
         params![currency, rate, today],
@@ -501,10 +501,10 @@ fn refresh_daily_summary(conn: &Connection) -> rusqlite::Result<()> {
 
 fn build_date_filter(args: &Args) -> (Option<String>, Option<String>) {
     if args.today {
-        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let today = Local::now().format("%Y-%m-%d").to_string();
         (Some(today.clone()), Some(today))
     } else if args.month {
-        let now = Utc::now();
+        let now = Local::now();
         let start = now.format("%Y-%m-01").to_string();
         let end = now.format("%Y-%m-%d").to_string();
         (Some(start), Some(end))
@@ -512,7 +512,7 @@ fn build_date_filter(args: &Args) -> (Option<String>, Option<String>) {
         (None, None)
     } else if args.since.is_none() && args.until.is_none() && args.year.is_none() {
         // Default to today if no other filters
-        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let today = Local::now().format("%Y-%m-%d").to_string();
         (Some(today.clone()), Some(today))
     } else {
         (args.since.clone(), args.until.clone())
@@ -1312,8 +1312,8 @@ fn print_clients_view() {
 // ── upgrade command ──────────────────────────────────────────────────────
 
 fn do_upgrade(conn: &Connection, rt: &Runtime) -> Result<(), Box<dyn std::error::Error>> {
-    let today = Utc::now().format("%Y-%m-%d").to_string();
-    let now_iso = Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
+    let today = Local::now().format("%Y-%m-%d").to_string();
+    let now_iso = Local::now().format("%Y-%m-%dT%H:%M:%S").to_string();
 
     // 1. Fetch and store exchange rate
     println!("[upgrade] Fetching USD/CNY exchange rate...");
@@ -1603,7 +1603,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── models view (default / today / month / all) ────────────────
     let (delta_stats, top_n, delta_label) = if args.today {
-        let yesterday = (Utc::now() - chrono::Duration::days(1))
+        let yesterday = (Local::now() - chrono::Duration::days(1))
             .format("%Y-%m-%d")
             .to_string();
         let stats = get_stats_for_range(
@@ -1614,7 +1614,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         (Some(stats), 3, "vs yesterday")
     } else if args.month {
-        let now = Utc::now();
+        let now = Local::now();
         let year = now.year();
         let month = now.month();
         let (ly, lm) = if month == 1 {

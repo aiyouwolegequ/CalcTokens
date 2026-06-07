@@ -5,6 +5,9 @@
 ### Fixed
 - **Timezone Mismatch in Date Filtering**: Changed query filters and boundary calculations in `calctokens` from `Utc::now()` to `Local::now()`. This ensures that recent token usage (e.g. messages generated shortly after midnight local time) aligns correctly with the local date stored in the database, preventing them from being hidden in "today's" usage report.
 
+### Changed
+- **Database Maintenance**: Added `PRAGMA optimize` execution before closing connections to automatically analyze tables and indexes when significant changes occur, maintaining optimal SQLite query plans.
+
 ## [1.0.5] - 2026-06-05
 
 ### Added

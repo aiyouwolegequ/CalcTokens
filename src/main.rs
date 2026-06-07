@@ -1393,7 +1393,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── upgrade: sync OpenRouter metadata + exchange rate ──────────────
     if args.upgrade {
-        return do_upgrade(&conn, &rt);
+        do_upgrade(&conn, &rt)?;
+        let _ = conn.execute("PRAGMA optimize;", []);
+        return Ok(());
     }
 
     let range_key = if args.today {
@@ -1768,6 +1770,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    let _ = conn.execute("PRAGMA optimize;", []);
     Ok(())
 }
 

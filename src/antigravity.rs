@@ -97,7 +97,7 @@ fn get_agy_cli_sessions() -> Vec<AgySessionInfo> {
         if let Ok(entries) = std::fs::read_dir(&conversations_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().is_some_and(|e| e == "pb") {
+                if path.extension().is_some_and(|e| e == "pb" || e == "db") {
                     if let Some(session_id) = path.file_stem().and_then(|s| s.to_str()) {
                         let (mtime_ms, size) = std::fs::metadata(&path)
                             .ok()

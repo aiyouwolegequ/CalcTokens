@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.7] - 2026-06-08
+
+### Fixed
+- **Antigravity SQLite Database Support**: Added `.db` file extension scanning to `get_agy_cli_sessions()` filesystem fallback. This allows CalcTokens to auto-discover and query token metrics for newer agy CLI / Antigravity conversations, which now store trajectory data in local SQLite databases (`.db` files) instead of Protobuf (`.pb`) files.
+
 ## [1.0.6] - 2026-06-07
 
 ### Fixed

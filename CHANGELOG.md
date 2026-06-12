@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.9] - 2026-06-12
+
+### Fixed
+- **Claude Fable Display Name**: Added a pretty-name mapping so `claude-fable-5` is displayed as `Claude-Fable-5` in reports.
+
 ## [1.0.8] - 2026-06-12
 
 ### Added

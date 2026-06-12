@@ -109,16 +109,10 @@ pub fn parse_mimocode_sqlite(db_path: &Path) -> Vec<UnifiedMessage> {
             None => continue,
         };
 
-        let agent = msg
-            .agent
-            .or(msg.mode)
-            .or(row_agent_id);
+        let agent = msg.agent.or(msg.mode).or(row_agent_id);
 
         let session_id = msg.session_id.unwrap_or(row_session_id);
-        let timestamp = msg
-            .time
-            .map(|t| t.created as i64)
-            .unwrap_or(0);
+        let timestamp = msg.time.map(|t| t.created as i64).unwrap_or(0);
 
         let provider = msg
             .provider_id
@@ -205,7 +199,13 @@ mod tests {
         db_path
     }
 
-    fn insert_mimo_message(conn: &Connection, row_id: &str, session_id: &str, agent_id: &str, data_json: &str) {
+    fn insert_mimo_message(
+        conn: &Connection,
+        row_id: &str,
+        session_id: &str,
+        agent_id: &str,
+        data_json: &str,
+    ) {
         conn.execute(
             "INSERT INTO message (id, session_id, agent_id, data) VALUES (?1, ?2, ?3, ?4)",
             params![row_id, session_id, agent_id, data_json],
@@ -317,7 +317,13 @@ mod tests {
                 "modelID": "mimo-auto"
             }"#,
         );
-        insert_mimo_message(&conn, "row-invalid-json", "sess-invalid", "main", "{not-json");
+        insert_mimo_message(
+            &conn,
+            "row-invalid-json",
+            "sess-invalid",
+            "main",
+            "{not-json",
+        );
         insert_mimo_message(
             &conn,
             "row-valid",
@@ -383,10 +389,7 @@ mod tests {
             messages[0].workspace_key.as_deref(),
             Some("/Users/test/project")
         );
-        assert_eq!(
-            messages[0].workspace_label.as_deref(),
-            Some("project")
-        );
+        assert_eq!(messages[0].workspace_label.as_deref(), Some("project"));
     }
 
     #[test]

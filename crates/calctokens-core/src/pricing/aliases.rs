@@ -220,6 +220,7 @@ static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("claude-sonnet-4-5-20250929", "Claude-Sonnet-4.5");
     m.insert("claude-sonnet-4-5-thinking", "Claude-Sonnet-4.5");
     m.insert("claude-sonnet-4.5-thinking", "Claude-Sonnet-4.5");
+    m.insert("claude-fable-5", "Claude-Fable-5");
 
     // GPT models
     m.insert("gpt-5.5", "GPT-5.5");
@@ -331,6 +332,10 @@ mod tests {
         assert_eq!(
             resolve_pretty_name("claude-sonnet-4-5-20250929"),
             Some("Claude-Sonnet-4.5")
+        );
+        assert_eq!(
+            resolve_pretty_name("claude-fable-5"),
+            Some("Claude-Fable-5")
         );
         assert_eq!(resolve_pretty_name("gpt-5.4-mini"), Some("GPT-5.4-Mini"));
         assert_eq!(resolve_pretty_name("gpt-5.3-codex"), Some("GPT-5.3-Codex"));

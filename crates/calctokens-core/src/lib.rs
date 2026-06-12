@@ -1128,13 +1128,14 @@ fn parse_all_messages_with_pricing_with_env_strategy(
     }
 
     if let Some(db_path) = &scan_result.mimocode_db {
-        let mimocode_messages: Vec<UnifiedMessage> = sessions::mimocode::parse_mimocode_sqlite(db_path)
-            .into_iter()
-            .map(|mut msg| {
-                apply_pricing_if_available(&mut msg, pricing);
-                msg
-            })
-            .collect();
+        let mimocode_messages: Vec<UnifiedMessage> =
+            sessions::mimocode::parse_mimocode_sqlite(db_path)
+                .into_iter()
+                .map(|mut msg| {
+                    apply_pricing_if_available(&mut msg, pricing);
+                    msg
+                })
+                .collect();
         all_messages.extend(mimocode_messages);
     }
 
@@ -2112,10 +2113,11 @@ pub fn parse_local_clients(options: LocalParseOptions) -> Result<ParsedMessages,
     }
 
     if let Some(db_path) = &scan_result.mimocode_db {
-        let mimocode_db_msgs: Vec<ParsedMessage> = sessions::mimocode::parse_mimocode_sqlite(db_path)
-            .into_iter()
-            .map(|msg| unified_to_parsed(&msg))
-            .collect();
+        let mimocode_db_msgs: Vec<ParsedMessage> =
+            sessions::mimocode::parse_mimocode_sqlite(db_path)
+                .into_iter()
+                .map(|msg| unified_to_parsed(&msg))
+                .collect();
         let mimocode_db_count = summed_parsed_message_count(&mimocode_db_msgs);
         counts.add(ClientId::MiMo, mimocode_db_count);
         messages.extend(mimocode_db_msgs);

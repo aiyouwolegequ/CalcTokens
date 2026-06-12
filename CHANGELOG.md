@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.8] - 2026-06-12
+
+### Added
+- **MiMo Code Support**: Added parsing support for MiMo Code (Xiaomi's AI coding assistant) which stores token usage data in `~/.local/share/mimocode/mimocode.db`. Parses input, output, cache read/write, and reasoning tokens from assistant messages, with workspace detection via project table.
+
 ## [1.0.7] - 2026-06-08
 
 ### Fixed

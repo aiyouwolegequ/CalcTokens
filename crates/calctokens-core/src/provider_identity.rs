@@ -20,6 +20,7 @@ fn canonicalize_provider_segment(segment: &str) -> Option<String> {
         "openai" | "openai_codex" => "openai",
         "mistral" | "mistralai" => "mistralai",
         "ai21" => "ai21",
+        "mimo" => "mimo",
         // For unknown segments, reject if they contain digits — those are
         // almost certainly model-name fragments (e.g., "gpt-4", "claude-3")
         // rather than provider identifiers.
@@ -157,6 +158,10 @@ pub fn inferred_provider_from_model(model: &str) -> Option<&'static str> {
 
     if lower.contains("minimax") {
         return Some("minimax");
+    }
+
+    if lower.contains("mimo") {
+        return Some("mimo");
     }
 
     if lower.contains("mistral") || lower.contains("mixtral") {

@@ -390,6 +390,15 @@ define_clients!(
         headless: false,
         parse_local: true,
         submit_default: true
+    },
+    MiMo = 23 => {
+        id: "mimocode",
+        root: PathRoot::XdgData,
+        relative: "mimocode/mimocode.db",
+        pattern: "mimocode.db",
+        headless: false,
+        parse_local: true,
+        submit_default: true
     }
 );
 
@@ -442,7 +451,7 @@ mod tests {
 
     #[test]
     fn test_client_id_count() {
-        assert_eq!(ClientId::COUNT, 23);
+        assert_eq!(ClientId::COUNT, 24);
     }
 
     #[test]

@@ -3,6 +3,8 @@ use std::collections::HashMap;
 
 static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     let mut m = HashMap::new();
+    m.insert("mimo-auto", "mimo-auto");
+    m.insert("mimo/mimo-auto", "mimo-auto");
     m.insert("big-pickle", "glm-4.7");
     m.insert("big pickle", "glm-4.7");
     m.insert("bigpickle", "glm-4.7");
@@ -155,6 +157,8 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
 
 static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     let mut m = HashMap::new();
+    m.insert("mimo-auto", "MiMo-Auto");
+    m.insert("mimo/mimo-auto", "MiMo-Auto");
     m.insert("gemini-3-flash-preview", "Gemini-3.1-Flash");
     m.insert("gemini-3-flash-a", "Gemini-3.5-Flash");
     m.insert("gemini-3-flash", "Gemini-3.5-Flash");

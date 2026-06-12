@@ -75,6 +75,7 @@ pub struct ScanResult {
     pub goose_db: Option<PathBuf>,
     pub zed_db: Option<PathBuf>,
     pub kiro_db: Option<PathBuf>,
+    pub mimocode_db: Option<PathBuf>,
     pub crush_dbs: Vec<CrushDbSource>,
     /// Path to the OpenCode legacy JSON directory (for migration cache stat checks)
     pub opencode_json_dir: Option<PathBuf>,
@@ -91,6 +92,7 @@ impl Default for ScanResult {
             goose_db: None,
             zed_db: None,
             kiro_db: None,
+            mimocode_db: None,
             crush_dbs: Vec::new(),
             opencode_json_dir: None,
         }
@@ -947,6 +949,15 @@ fn scan_all_clients_with_env_strategy_inner(
             if macos_path.is_file() {
                 result.kiro_db = Some(macos_path);
             }
+        }
+    }
+
+    if enabled.contains(&ClientId::MiMo) {
+        let mimocode_db_path = ClientId::MiMo
+            .data()
+            .resolve_path_with_env_strategy(home_dir, use_env_roots);
+        if std::path::Path::new(&mimocode_db_path).exists() {
+            result.mimocode_db = Some(PathBuf::from(mimocode_db_path));
         }
     }
 

@@ -1127,6 +1127,17 @@ fn parse_all_messages_with_pricing_with_env_strategy(
         all_messages.extend(kiro_db_messages);
     }
 
+    if let Some(db_path) = &scan_result.mimocode_db {
+        let mimocode_messages: Vec<UnifiedMessage> = sessions::mimocode::parse_mimocode_sqlite(db_path)
+            .into_iter()
+            .map(|mut msg| {
+                apply_pricing_if_available(&mut msg, pricing);
+                msg
+            })
+            .collect();
+        all_messages.extend(mimocode_messages);
+    }
+
     for source in &scan_result.crush_dbs {
         let crush_messages: Vec<UnifiedMessage> =
             sessions::crush::parse_crush_sqlite(&source.db_path)
@@ -2098,6 +2109,16 @@ pub fn parse_local_clients(options: LocalParseOptions) -> Result<ParsedMessages,
         let kiro_db_count = summed_parsed_message_count(&kiro_db_msgs);
         counts.add(ClientId::Kiro, kiro_db_count);
         messages.extend(kiro_db_msgs);
+    }
+
+    if let Some(db_path) = &scan_result.mimocode_db {
+        let mimocode_db_msgs: Vec<ParsedMessage> = sessions::mimocode::parse_mimocode_sqlite(db_path)
+            .into_iter()
+            .map(|msg| unified_to_parsed(&msg))
+            .collect();
+        let mimocode_db_count = summed_parsed_message_count(&mimocode_db_msgs);
+        counts.add(ClientId::MiMo, mimocode_db_count);
+        messages.extend(mimocode_db_msgs);
     }
 
     let crush_msgs: Vec<ParsedMessage> = scan_result

@@ -53,6 +53,7 @@ Recent history uses concise conventional-style messages such as `fix: add missin
    - In the `homebrew-calctokens` repository, edit `Formula/calctokens.rb`.
    - Update the `version` field to the new tag.
    - Update the `sha256` for the macOS artifact (download the release tarball or use `shasum -a 256 <file>`).
+   - Validate the formula with `brew audit --strict aiyouwolegequ/calctokens/calctokens` and `brew test aiyouwolegequ/calctokens/calctokens` after the tap is updated. If `brew audit --strict --online` reports a newly published GitHub Release asset as unreachable while `curl -I <asset-url>`, `brew upgrade calctokens`, and `brew test` all succeed, treat it as a transient online reachability false negative and record that fallback explicitly in the release notes.
    - Commit and push the formula change.
 
 6. Upgrade on remote hosts

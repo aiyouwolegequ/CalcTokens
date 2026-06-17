@@ -416,32 +416,15 @@ fn sync_messages(
 
     let tx = conn.unchecked_transaction()?;
 
-    // When syncing specific clients, purge their stale rows first so that
-    // parser fixes (canonical IDs, providers, timestamps) are reflected
-    // immediately instead of being shadowed by old daily_summary aggregates.
-    if let Some(ref targets) = clients {
-        if !targets.is_empty() {
-            let placeholders: Vec<String> =
-                (0..targets.len()).map(|i| format!("?{}", i + 1)).collect();
-            tx.execute(
-                &format!(
-                    "DELETE FROM messages WHERE client IN ({})",
-                    placeholders.join(",")
-                ),
-                rusqlite::params_from_iter(targets.iter()),
-            )?;
-            tx.execute(
-                &format!(
-                    "DELETE FROM daily_summary WHERE client IN ({})",
-                    placeholders.join(",")
-                ),
-                rusqlite::params_from_iter(targets.iter()),
-            )?;
-        }
-    }
+    // Historical messages must never be deleted just because their original
+    // source files have been rotated. Use INSERT OR REPLACE so parser fixes
+    // (canonical IDs, providers, timestamps, client attribution) update existing
+    // rows by message_key. Rebuild daily_summary from scratch so any client or
+    // model re-attribution is reflected immediately.
+    tx.execute("DELETE FROM daily_summary", [])?;
     {
         let mut stmt = tx.prepare(
-            "INSERT OR IGNORE INTO messages
+            "INSERT OR REPLACE INTO messages
              (client, model_id, canonical_id, provider_id, session_id,
               workspace_key, workspace_label,
               timestamp, date,

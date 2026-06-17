@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-06-17
+
+### Fixed
+- **Historical Data Preservation**: Client-specific sync (`--client`) no longer deletes existing `messages` rows. Source files can be rotated or cleaned by the upstream client (e.g. Claude Code), but historical records accumulated in `~/.calctokens.db` are preserved. Sync now uses `INSERT OR REPLACE` keyed by `message_key` so parser fixes update existing rows, and `daily_summary` is rebuilt from scratch to reflect any client/model re-attribution.
+
 ## [1.1.2] - 2026-06-17
 
 ### Fixed

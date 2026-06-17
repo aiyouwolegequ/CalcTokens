@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-06-17
+
+### Fixed
+- **Antigravity Model Attribution**: Antigravity session parser now preserves the raw `model_id` in `messages` instead of prematurely resolving it to a pretty name, aligning with the core design that raw observations stay immutable.
+- **Antigravity Placeholder Provider Inference**: `MODEL_PLACEHOLDER_*` model IDs now resolve through aliases before provider inference, so placeholders map to the correct provider (e.g. Gemini placeholders → `google`, Claude placeholders → `anthropic`) instead of falling back to `antigravity`. This fixes duplicate/detail rows for the same canonical model under different providers.
+
 ## [1.1.0] - 2026-06-17
 
 ### Added

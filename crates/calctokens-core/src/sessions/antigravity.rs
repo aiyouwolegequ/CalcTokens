@@ -59,9 +59,6 @@ fn parse_usage_row(value: &Value, fallback_model: Option<&str>) -> Option<Unifie
         .map(|text| text.to_string())
         .or_else(|| fallback_model.map(|text| text.to_string()))
         .unwrap_or_else(|| "unknown".to_string());
-    let model_id = pricing::aliases::resolve_pretty_name(&model_id)
-        .unwrap_or(model_id.as_str())
-        .to_string();
 
     let provider_id = value
         .get("providerId")
@@ -71,7 +68,13 @@ fn parse_usage_row(value: &Value, fallback_model: Option<&str>) -> Option<Unifie
             !text.is_empty() && !text.eq_ignore_ascii_case("unknown")
         })
         .map(|text| text.to_string())
-        .unwrap_or_else(|| infer_provider(&model_id).to_string());
+        .unwrap_or_else(|| {
+            // Placeholder model ids (MODEL_PLACEHOLDER_*) cannot be inferred
+            // directly; resolve to canonical id first so provider inference
+            // works for mapped placeholders.
+            let canonical = pricing::aliases::resolve_alias(&model_id).unwrap_or(model_id.as_str());
+            infer_provider(canonical).to_string()
+        });
 
     let input = to_safe_i64(value.get("input"));
     let output = to_safe_i64(value.get("output"));
@@ -138,7 +141,7 @@ mod tests {
         let messages = parse_antigravity_file(path.path());
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].client, "antigravity");
-        assert_eq!(messages[0].model_id, "Claude-Sonnet-4.6");
+        assert_eq!(messages[0].model_id, "claude-sonnet-4.6");
         assert_eq!(messages[0].tokens.input, 12);
         assert_eq!(messages[0].tokens.reasoning, 1);
         assert_eq!(messages[0].dedup_key.as_deref(), Some("resp-1"));
@@ -146,7 +149,7 @@ mod tests {
 
     #[test]
     fn parse_usage_row_resolves_placeholder_model_alias() {
-        let input = r#"{"type":"usage","sessionId":"abc","modelId":"MODEL_PLACEHOLDER_M26","timestamp":1711200000000,"input":12,"output":4,"cacheRead":2,"cacheWrite":0,"reasoning":1}
+        let input = r#"{"type":"usage","sessionId":"abc","modelId":"MODEL_PLACEHOLDER_M26","providerId":"anthropic","timestamp":1711200000000,"input":12,"output":4,"cacheRead":2,"cacheWrite":0,"reasoning":1}
 "#;
 
         let path = tempfile::NamedTempFile::new().unwrap();
@@ -154,7 +157,7 @@ mod tests {
 
         let messages = parse_antigravity_file(path.path());
         assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].model_id, "Claude-Opus-4.6");
+        assert_eq!(messages[0].model_id, "MODEL_PLACEHOLDER_M26");
         assert_eq!(messages[0].provider_id, "anthropic");
     }
 

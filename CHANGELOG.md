@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.1.5] - 2026-06-17
+
+### Changed
+- **`--all` summary header**: The summary table header is now "Since" and the value shows the earliest recorded date from `messages`, making it clear how far back the aggregated data spans.
+
 ## [1.1.4] - 2026-06-17
 
 ### Added

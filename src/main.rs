@@ -977,6 +977,7 @@ fn share_pct(cost: f64, total_cost: f64) -> String {
 
 // ── View printers ───────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn print_models_view(
     report: &ModelReport,
     top_models: &[ModelUsage],
@@ -985,6 +986,7 @@ fn print_models_view(
     delta_stats: Option<Stats>,
     range_flag: &str,
     delta_label: &str,
+    since_date: Option<&str>,
 ) {
     let total_in = report.total_input;
     let total_out = report.total_output;
@@ -1019,11 +1021,22 @@ fn print_models_view(
         };
 
     let mut sum_builder = Builder::new();
+    let (first_header, first_value): (&str, String) = if let Some(d) = since_date {
+        ("Since", d.to_string())
+    } else {
+        ("Metric", metric_label.to_string())
+    };
     sum_builder.push_record([
-        "Metric", "Input", "Output", "Cache W", "Cache R", "Total", "CNY",
+        first_header,
+        "Input",
+        "Output",
+        "Cache W",
+        "Cache R",
+        "Total",
+        "CNY",
     ]);
     sum_builder.push_record([
-        metric_label,
+        &first_value,
         &fmt_num(total_in as f64),
         &fmt_num(total_out as f64),
         &fmt_num(total_cache_write as f64),
@@ -1712,6 +1725,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let top_models = query_top_models(&conn, &args, top_n)?;
     let top_usage_models = query_top_usage_models(&conn, &args, top_n)?;
 
+    // For the "all" view, show the earliest recorded date as the summary anchor.
+    let since_date: Option<String> = if range_key == "all" {
+        conn.query_row(
+            "SELECT MIN(date) FROM messages WHERE date IS NOT NULL AND date != ''",
+            [],
+            |row| row.get(0),
+        )
+        .ok()
+    } else {
+        None
+    };
+
     // Save record for "since last check" if in default mode
     if !args.today
         && !args.month
@@ -1804,6 +1829,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             delta_stats,
             range_key,
             delta_label,
+            since_date.as_deref(),
         );
     }
 

@@ -989,6 +989,7 @@ fn print_models_view(
     range_flag: &str,
     delta_label: &str,
     since_date: Option<&str>,
+    today_date: Option<&str>,
 ) {
     let total_in = report.total_input;
     let total_out = report.total_output;
@@ -1023,29 +1024,41 @@ fn print_models_view(
         };
 
     let mut sum_builder = Builder::new();
-    let (first_header, first_value): (&str, String) = if let Some(d) = since_date {
-        ("Since", d.to_string())
+    let (headers, values): (Vec<&str>, Vec<String>) = if let Some(since) = since_date {
+        let today = today_date.unwrap_or("-");
+        (
+            vec![
+                "Today", "Since", "Input", "Output", "Cache W", "Cache R", "Total", "CNY",
+            ],
+            vec![
+                today.to_string(),
+                since.to_string(),
+                fmt_num(total_in as f64),
+                fmt_num(total_out as f64),
+                fmt_num(total_cache_write as f64),
+                fmt_num(total_cache_read as f64),
+                fmt_num((total_in + total_out + total_cache_write + total_cache_read) as f64),
+                format!("¥{:.2}", total_rmb),
+            ],
+        )
     } else {
-        ("Metric", metric_label.to_string())
+        (
+            vec![
+                "Metric", "Input", "Output", "Cache W", "Cache R", "Total", "CNY",
+            ],
+            vec![
+                metric_label.to_string(),
+                fmt_num(total_in as f64),
+                fmt_num(total_out as f64),
+                fmt_num(total_cache_write as f64),
+                fmt_num(total_cache_read as f64),
+                fmt_num((total_in + total_out + total_cache_write + total_cache_read) as f64),
+                format!("¥{:.2}", total_rmb),
+            ],
+        )
     };
-    sum_builder.push_record([
-        first_header,
-        "Input",
-        "Output",
-        "Cache W",
-        "Cache R",
-        "Total",
-        "CNY",
-    ]);
-    sum_builder.push_record([
-        &first_value,
-        &fmt_num(total_in as f64),
-        &fmt_num(total_out as f64),
-        &fmt_num(total_cache_write as f64),
-        &fmt_num(total_cache_read as f64),
-        &fmt_num((total_in + total_out + total_cache_write + total_cache_read) as f64),
-        &format!("¥{:.2}", total_rmb),
-    ]);
+    sum_builder.push_record(headers);
+    sum_builder.push_record(values);
     let mut sum_table = sum_builder.build();
     sum_table
         .with(Style::rounded())
@@ -1734,7 +1747,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let top_models = query_top_models(&conn, &args, top_n)?;
     let top_usage_models = query_top_usage_models(&conn, &args, top_n)?;
 
-    // For the "all" view, show the earliest recorded date as the summary anchor.
+    // For the "all" view, show today's date and the earliest recorded date.
+    let today_date: Option<String> = if range_key == "all" {
+        Some(Local::now().format("%Y-%m-%d").to_string())
+    } else {
+        None
+    };
     let since_date: Option<String> = if range_key == "all" {
         conn.query_row(
             "SELECT MIN(date) FROM messages WHERE date IS NOT NULL AND date != ''",
@@ -1842,6 +1860,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             range_key,
             delta_label,
             since_date.as_deref(),
+            today_date.as_deref(),
         );
     }
 

@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.1.8] - 2026-06-17
+
+### Changed
+- **`--all` summary shows Today + Since**: The `SUMMARY` table for `calctokens --all` now includes both `Today` (query date) and `Since` (earliest recorded date) columns, making the report time context explicit.
+
 ## [1.1.7] - 2026-06-17
 
 ### Fixed

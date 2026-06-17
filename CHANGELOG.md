@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-06-17
+
+### Fixed
+- **MiMo Code Import Attribution**: MiMo Code's SQLite database (`~/.local/share/mimocode/mimocode.db`) contains imported Claude Code sessions via `claude_import` and `external_import` tables. The parser now detects these imported sessions and attributes them to the `claude` client (with models/providers inferred from the recorded `modelID`) instead of reporting them under `mimocode`. Native MiMo Code sessions are still reported under `mimocode` and are filtered to MiMo models only, so `mimocode` reports now show only `MiMo-Auto` as intended.
+
 ## [1.1.1] - 2026-06-17
 
 ### Fixed

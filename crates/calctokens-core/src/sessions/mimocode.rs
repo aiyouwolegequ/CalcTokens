@@ -46,6 +46,10 @@ pub struct MimoTime {
     pub completed: Option<f64>,
 }
 
+fn is_mimo_model(model_id: &str) -> bool {
+    model_id.to_lowercase().starts_with("mimo-")
+}
+
 pub fn parse_mimocode_sqlite(db_path: &Path) -> Vec<UnifiedMessage> {
     let Some(conn) = open_readonly_sqlite(db_path) else {
         return Vec::new();
@@ -53,10 +57,17 @@ pub fn parse_mimocode_sqlite(db_path: &Path) -> Vec<UnifiedMessage> {
 
     let query = r#"
         SELECT m.id, m.session_id, m.agent_id, m.time_created, m.data,
-               p.worktree
+               p.worktree,
+               CASE
+                   WHEN ci.session_id IS NOT NULL THEN 'claude_import'
+                   WHEN ei.session_id IS NOT NULL THEN COALESCE(ei.source, 'external_import')
+                   ELSE 'native'
+               END AS source_kind
         FROM message m
         JOIN session s ON m.session_id = s.id
         JOIN project p ON s.project_id = p.id
+        LEFT JOIN claude_import ci ON s.id = ci.session_id
+        LEFT JOIN external_import ei ON s.id = ei.session_id
         WHERE m.data LIKE '%"role"%"assistant"%'
           AND m.data LIKE '%"tokens"%'
           AND json_valid(m.data)
@@ -76,7 +87,8 @@ pub fn parse_mimocode_sqlite(db_path: &Path) -> Vec<UnifiedMessage> {
         let time_created: Option<i64> = row.get(3)?;
         let data_json: String = row.get(4)?;
         let worktree: Option<String> = row.get(5)?;
-        Ok((id, session_id, agent_id, time_created, data_json, worktree))
+        let source_kind: String = row.get(6)?;
+        Ok((id, session_id, agent_id, time_created, data_json, worktree, source_kind))
     }) {
         Ok(r) => r,
         Err(_) => return Vec::new(),
@@ -85,7 +97,7 @@ pub fn parse_mimocode_sqlite(db_path: &Path) -> Vec<UnifiedMessage> {
     let mut messages = Vec::new();
 
     for row_result in rows {
-        let (row_id, row_session_id, row_agent_id, time_created, data_json, worktree) =
+        let (row_id, row_session_id, row_agent_id, time_created, data_json, worktree, source_kind) =
             match row_result {
                 Ok(r) => r,
                 Err(_) => continue,
@@ -112,6 +124,19 @@ pub fn parse_mimocode_sqlite(db_path: &Path) -> Vec<UnifiedMessage> {
             None => continue,
         };
 
+        // MiMo Code can import sessions from other clients (e.g. Claude Code).
+        // Attribute imported sessions to their original client; keep only native
+        // MiMo model usage under the mimocode client.
+        let client = match source_kind.as_str() {
+            "claude_import" | "cc" => "claude",
+            _ => {
+                if !is_mimo_model(&model_id) {
+                    continue;
+                }
+                "mimocode"
+            }
+        };
+
         let dedup_key = msg.id.or(Some(row_id));
 
         let agent = msg.agent.or(msg.mode).or(row_agent_id);
@@ -123,11 +148,11 @@ pub fn parse_mimocode_sqlite(db_path: &Path) -> Vec<UnifiedMessage> {
             .unwrap_or_else(|| msg.time_created.unwrap_or(0));
 
         let provider = provider_identity::inferred_provider_from_model(&model_id)
-            .unwrap_or("mimocode")
+            .unwrap_or(client)
             .to_string();
 
         let mut unified = UnifiedMessage::new_with_agent(
-            "mimocode",
+            client,
             model_id,
             provider,
             session_id,
@@ -186,6 +211,24 @@ mod tests {
                 time_created INTEGER NOT NULL DEFAULT 0,
                 time_updated INTEGER NOT NULL DEFAULT 0,
                 data TEXT NOT NULL
+            );
+            CREATE TABLE claude_import (
+                source_uuid TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                source_path TEXT NOT NULL,
+                source_mtime INTEGER NOT NULL,
+                time_imported INTEGER NOT NULL,
+                message_ids TEXT
+            );
+            CREATE TABLE external_import (
+                source TEXT NOT NULL,
+                source_key TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                source_path TEXT NOT NULL,
+                source_mtime INTEGER NOT NULL,
+                time_imported INTEGER NOT NULL,
+                message_ids TEXT,
+                PRIMARY KEY (source, source_key)
             );
             "#,
         )
@@ -366,6 +409,133 @@ mod tests {
         assert_eq!(msg.cost, 0.0);
         assert_eq!(msg.agent.as_deref(), Some("plan"));
         assert_eq!(msg.dedup_key.as_deref(), Some("row-valid"));
+    }
+
+    #[test]
+    fn test_parse_mimocode_sqlite_skips_non_mimo_models() {
+        let dir = TempDir::new().unwrap();
+        let db_path = create_mimocode_sqlite_db(&dir);
+        let conn = Connection::open(&db_path).unwrap();
+
+        insert_mimo_message(
+            &conn,
+            "row-mimo",
+            "sess-1",
+            "main",
+            r#"{
+                "role": "assistant",
+                "modelID": "mimo-auto",
+                "providerID": "mimo",
+                "tokens": {"input": 100, "output": 50, "cache": {"read": 0, "write": 0}},
+                "time": {"created": 1700000000000.0}
+            }"#,
+        );
+        insert_mimo_message(
+            &conn,
+            "row-kimi",
+            "sess-1",
+            "main",
+            r#"{
+                "role": "assistant",
+                "modelID": "kimi-k2.6",
+                "providerID": "anthropic",
+                "tokens": {"input": 9999, "output": 9999, "cache": {"read": 0, "write": 0}},
+                "time": {"created": 1700000000000.0}
+            }"#,
+        );
+        drop(conn);
+
+        let messages = parse_mimocode_sqlite(&db_path);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].model_id, "mimo-auto");
+    }
+
+    #[test]
+    fn test_parse_mimocode_sqlite_reattributes_imported_sessions_to_claude() {
+        let dir = TempDir::new().unwrap();
+        let db_path = create_mimocode_sqlite_db(&dir);
+        let conn = Connection::open(&db_path).unwrap();
+
+        conn.execute(
+            "INSERT INTO session (id, project_id, title, directory, time_created, time_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params!["sess-native", "proj-1", "Native Session", "/Users/test/project", 1700000000000i64, 1700000000000i64],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session (id, project_id, title, directory, time_created, time_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params!["sess-imported", "proj-1", "Imported Session", "/Users/test/project", 1700000000000i64, 1700000000000i64],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO claude_import (source_uuid, session_id, source_path, source_mtime, time_imported, message_ids) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params!["uuid-1", "sess-imported", "/path/to/claude.jsonl", 1700000000000i64, 1700000000000i64, "[]"],
+        )
+        .unwrap();
+
+        let native_json = r#"{
+            "role": "assistant",
+            "modelID": "mimo-auto",
+            "providerID": "mimo",
+            "tokens": {"input": 100, "output": 50, "cache": {"read": 0, "write": 0}},
+            "time": {"created": 1700000000000.0}
+        }"#;
+        let imported_json = r#"{
+            "role": "assistant",
+            "modelID": "claude-sonnet-4-5",
+            "providerID": "anthropic",
+            "tokens": {"input": 9999, "output": 9999, "cache": {"read": 0, "write": 0}},
+            "time": {"created": 1700000000000.0}
+        }"#;
+        insert_mimo_message(&conn, "row-native", "sess-native", "main", native_json);
+        insert_mimo_message(&conn, "row-imported", "sess-imported", "main", imported_json);
+        drop(conn);
+
+        let messages = parse_mimocode_sqlite(&db_path);
+        assert_eq!(messages.len(), 2);
+
+        let native = messages.iter().find(|m| m.session_id == "sess-native").unwrap();
+        assert_eq!(native.client, "mimocode");
+        assert_eq!(native.model_id, "mimo-auto");
+        assert_eq!(native.provider_id, "mimo");
+
+        let imported = messages.iter().find(|m| m.session_id == "sess-imported").unwrap();
+        assert_eq!(imported.client, "claude");
+        assert_eq!(imported.model_id, "claude-sonnet-4-5");
+        assert_eq!(imported.provider_id, "anthropic");
+    }
+
+    #[test]
+    fn test_parse_mimocode_sqlite_reattributes_external_cc_imports_to_claude() {
+        let dir = TempDir::new().unwrap();
+        let db_path = create_mimocode_sqlite_db(&dir);
+        let conn = Connection::open(&db_path).unwrap();
+
+        conn.execute(
+            "INSERT INTO session (id, project_id, title, directory, time_created, time_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params!["sess-cc", "proj-1", "CC Imported Session", "/Users/test/project", 1700000000000i64, 1700000000000i64],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO external_import (source, source_key, session_id, source_path, source_mtime, time_imported, message_ids) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params!["cc", "key-1", "sess-cc", "/path/to/cc.jsonl", 1700000000000i64, 1700000000000i64, "[]"],
+        )
+        .unwrap();
+
+        let imported_json = r#"{
+            "role": "assistant",
+            "modelID": "kimi-k2.5",
+            "providerID": "anthropic",
+            "tokens": {"input": 500, "output": 100, "cache": {"read": 0, "write": 0}},
+            "time": {"created": 1700000000000.0}
+        }"#;
+        insert_mimo_message(&conn, "row-cc", "sess-cc", "main", imported_json);
+        drop(conn);
+
+        let messages = parse_mimocode_sqlite(&db_path);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].client, "claude");
+        assert_eq!(messages[0].model_id, "kimi-k2.5");
+        assert_eq!(messages[0].provider_id, "moonshotai");
     }
 
     #[test]

@@ -449,9 +449,11 @@ fn sync_messages(
     // Historical messages must never be deleted just because their original
     // source files have been rotated. Use INSERT OR REPLACE so parser fixes
     // (canonical IDs, providers, timestamps, client attribution) update existing
-    // rows by message_key. Rebuild daily_summary from scratch so any client or
-    // model re-attribution is reflected immediately.
-    tx.execute("DELETE FROM daily_summary", [])?;
+    // rows by message_key.
+    //
+    // NOTE: daily_summary is intentionally NOT deleted here. It is refreshed
+    // after this function returns so that a sync that discovers zero new
+    // messages does not leave the pre-aggregated table empty.
     {
         let mut stmt = tx.prepare(
             "INSERT OR REPLACE INTO messages
@@ -1536,7 +1538,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         Some(args.client.clone())
     };
-    let new_count = if args.no_sync {
+    let _new_count = if args.no_sync {
         0 // Skip sync entirely for read-only historical queries
     } else {
         match sync_messages(&conn, &rt, sync_clients.clone()) {
@@ -1547,7 +1549,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     };
-    if new_count > 0 || sync_clients.is_some() {
+    // Whenever sync was attempted (even if zero new messages were found),
+    // rebuild daily_summary from the current messages table. This both
+    // populates the table after a fresh install/upgrade and prevents the
+    // pre-aggregated cache from ever being left empty after a sync run.
+    if !args.no_sync {
+        if let Err(e) = conn.execute("DELETE FROM daily_summary", []) {
+            eprintln!("Warning: failed to clear daily_summary: {}", e);
+        }
         if let Err(e) = refresh_daily_summary(&conn) {
             eprintln!("Warning: daily_summary refresh failed: {}", e);
         }

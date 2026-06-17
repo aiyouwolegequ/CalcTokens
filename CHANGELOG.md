@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.1.7] - 2026-06-17
+
+### Fixed
+- **Empty `daily_summary` after sync with no new messages**: Moved `daily_summary` deletion out of `sync_messages()` and into the post-sync refresh path. Previously, every sync unconditionally deleted the pre-aggregated table; if no new messages were discovered, the table stayed empty and reports returned zeros. Now `daily_summary` is cleared and rebuilt whenever sync runs, regardless of how many new messages were inserted.
+
 ## [1.1.6] - 2026-06-17
 
 ### Added

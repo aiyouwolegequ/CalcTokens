@@ -1791,6 +1791,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             total_cache_write: i64,
             total_cost: f64,
             processing_time_ms: u32,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            since_date: Option<String>,
         }
         let out = JR {
             currency: "CNY".into(),
@@ -1818,6 +1820,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             total_cache_write: report.total_cache_write,
             total_cost: report.total_cost * exchange,
             processing_time_ms: report.processing_time_ms,
+            since_date: since_date.clone(),
         };
         println!("{}", serde_json::to_string_pretty(&out)?);
     } else {

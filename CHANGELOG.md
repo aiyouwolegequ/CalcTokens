@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.1.6] - 2026-06-17
+
+### Added
+- **JSON `sinceDate` for `--all`**: The `--json-output --all` response now includes a top-level `sinceDate` field with the earliest recorded date from `messages`, enabling downstream aggregators (e.g. `totaltokens`) to display the data span.
+
 ## [1.1.5] - 2026-06-17
 
 ### Changed

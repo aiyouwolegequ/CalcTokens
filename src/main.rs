@@ -403,7 +403,7 @@ fn sync_messages(
     let opts = LocalParseOptions {
         home_dir: None,
         use_env_roots: true,
-        clients,
+        clients: clients.clone(),
         since: None,
         until: None,
         year: None,
@@ -415,6 +415,30 @@ fn sync_messages(
     let before_count: usize = conn.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))?;
 
     let tx = conn.unchecked_transaction()?;
+
+    // When syncing specific clients, purge their stale rows first so that
+    // parser fixes (canonical IDs, providers, timestamps) are reflected
+    // immediately instead of being shadowed by old daily_summary aggregates.
+    if let Some(ref targets) = clients {
+        if !targets.is_empty() {
+            let placeholders: Vec<String> =
+                (0..targets.len()).map(|i| format!("?{}", i + 1)).collect();
+            tx.execute(
+                &format!(
+                    "DELETE FROM messages WHERE client IN ({})",
+                    placeholders.join(",")
+                ),
+                rusqlite::params_from_iter(targets.iter()),
+            )?;
+            tx.execute(
+                &format!(
+                    "DELETE FROM daily_summary WHERE client IN ({})",
+                    placeholders.join(",")
+                ),
+                rusqlite::params_from_iter(targets.iter()),
+            )?;
+        }
+    }
     {
         let mut stmt = tx.prepare(
             "INSERT OR IGNORE INTO messages
@@ -1489,7 +1513,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let new_count = if args.no_sync {
         0 // Skip sync entirely for read-only historical queries
     } else {
-        match sync_messages(&conn, &rt, sync_clients) {
+        match sync_messages(&conn, &rt, sync_clients.clone()) {
             Ok(n) => n,
             Err(e) => {
                 eprintln!("Warning: message sync failed (data may be stale): {}", e);
@@ -1497,7 +1521,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     };
-    if new_count > 0 {
+    if new_count > 0 || sync_clients.is_some() {
         if let Err(e) = refresh_daily_summary(&conn) {
             eprintln!("Warning: daily_summary refresh failed: {}", e);
         }

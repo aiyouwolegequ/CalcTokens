@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+## [1.1.0] - 2026-06-17
+
+### Added
+- **Kimi K2.7 Code Support**: Added pricing and aliases for `kimi-k2.7-code`. Updated the `kimi-code/kimi-for-coding` mapping to resolve to `Kimi-K2.7-Code` so Kimi Code CLI usage is reported against the current default model.
+
+### Fixed
+- **MiMo Code Parsing Accuracy**: Fixed MiMo Code history parsing so token totals now match `mimo stats`. Corrected provider identification to be inferred from the model name instead of MiMo Code's internal `providerID` field (which always reported `anthropic`). Added missing model aliases for `MiniMax-M3`, `mimo-v2.5-pro-ultraspeed`, and `<synthetic>` messages.
+- **Sync Staleness**: When syncing specific clients (`--client`), stale rows for those clients are now purged before re-insertion so parser fixes are reflected immediately instead of being shadowed by old `daily_summary` aggregates.
+
 ## [1.0.9] - 2026-06-12
 
 ### Fixed

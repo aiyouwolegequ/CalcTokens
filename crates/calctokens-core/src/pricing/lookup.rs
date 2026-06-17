@@ -1828,6 +1828,16 @@ mod tests {
                 ..Default::default()
             },
         );
+        m.insert(
+            "moonshotai/kimi-k2.7-code".into(),
+            ModelPricing {
+                input_cost_per_token: Some(7.5e-7),
+                output_cost_per_token: Some(0.0000035),
+                cache_read_input_token_cost: Some(1.6e-7),
+                cache_creation_input_token_cost: None,
+                ..Default::default()
+            },
+        );
 
         // === OpenCode Zen: Qwen family ===
         m.insert(

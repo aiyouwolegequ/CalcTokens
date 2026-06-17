@@ -21,6 +21,8 @@ pub struct MimoMessage {
     pub time: Option<MimoTime>,
     pub agent: Option<String>,
     pub mode: Option<String>,
+    #[serde(skip)]
+    pub time_created: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -50,7 +52,7 @@ pub fn parse_mimocode_sqlite(db_path: &Path) -> Vec<UnifiedMessage> {
     };
 
     let query = r#"
-        SELECT m.id, m.session_id, m.agent_id, m.data,
+        SELECT m.id, m.session_id, m.agent_id, m.time_created, m.data,
                p.worktree
         FROM message m
         JOIN session s ON m.session_id = s.id
@@ -71,9 +73,10 @@ pub fn parse_mimocode_sqlite(db_path: &Path) -> Vec<UnifiedMessage> {
         let id: String = row.get(0)?;
         let session_id: String = row.get(1)?;
         let agent_id: Option<String> = row.get(2)?;
-        let data_json: String = row.get(3)?;
-        let worktree: Option<String> = row.get(4)?;
-        Ok((id, session_id, agent_id, data_json, worktree))
+        let time_created: Option<i64> = row.get(3)?;
+        let data_json: String = row.get(4)?;
+        let worktree: Option<String> = row.get(5)?;
+        Ok((id, session_id, agent_id, time_created, data_json, worktree))
     }) {
         Ok(r) => r,
         Err(_) => return Vec::new(),
@@ -82,16 +85,18 @@ pub fn parse_mimocode_sqlite(db_path: &Path) -> Vec<UnifiedMessage> {
     let mut messages = Vec::new();
 
     for row_result in rows {
-        let (row_id, row_session_id, row_agent_id, data_json, worktree) = match row_result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let (row_id, row_session_id, row_agent_id, time_created, data_json, worktree) =
+            match row_result {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
 
         let mut bytes = data_json.into_bytes();
-        let msg: MimoMessage = match simd_json::from_slice(&mut bytes) {
+        let mut msg: MimoMessage = match simd_json::from_slice(&mut bytes) {
             Ok(m) => m,
             Err(_) => continue,
         };
+        msg.time_created = time_created;
 
         if msg.role != "assistant" {
             continue;
@@ -102,22 +107,22 @@ pub fn parse_mimocode_sqlite(db_path: &Path) -> Vec<UnifiedMessage> {
             None => continue,
         };
 
-        let dedup_key = msg.id.or(Some(row_id));
-
         let model_id = match msg.model_id {
             Some(m) => m,
             None => continue,
         };
 
+        let dedup_key = msg.id.or(Some(row_id));
+
         let agent = msg.agent.or(msg.mode).or(row_agent_id);
 
         let session_id = msg.session_id.unwrap_or(row_session_id);
-        let timestamp = msg.time.map(|t| t.created as i64).unwrap_or(0);
+        let timestamp = msg
+            .time
+            .map(|t| t.created as i64)
+            .unwrap_or_else(|| msg.time_created.unwrap_or(0));
 
-        let provider = msg
-            .provider_id
-            .as_deref()
-            .or_else(|| provider_identity::inferred_provider_from_model(&model_id))
+        let provider = provider_identity::inferred_provider_from_model(&model_id)
             .unwrap_or("mimocode")
             .to_string();
 
@@ -178,6 +183,8 @@ mod tests {
                 id TEXT PRIMARY KEY,
                 session_id TEXT NOT NULL,
                 agent_id TEXT NOT NULL DEFAULT 'main',
+                time_created INTEGER NOT NULL DEFAULT 0,
+                time_updated INTEGER NOT NULL DEFAULT 0,
                 data TEXT NOT NULL
             );
             "#,
@@ -207,8 +214,8 @@ mod tests {
         data_json: &str,
     ) {
         conn.execute(
-            "INSERT INTO message (id, session_id, agent_id, data) VALUES (?1, ?2, ?3, ?4)",
-            params![row_id, session_id, agent_id, data_json],
+            "INSERT INTO message (id, session_id, agent_id, time_created, time_updated, data) VALUES (?1, ?2, ?3, ?4, ?4, ?5)",
+            params![row_id, session_id, agent_id, 1700000000000i64, data_json],
         )
         .unwrap();
     }

@@ -107,17 +107,23 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
 
     // Kimi models
     m.insert("kimi-for-coding", "kimi-k2.5");
-    m.insert("kimi-code/kimi-for-coding", "kimi-k2.6");
+    m.insert("kimi-code/kimi-for-coding", "kimi-k2.7-code");
     m.insert("kimi-k2.5", "kimi-k2.5");
     m.insert("kimi-k2.6", "kimi-k2.6");
+    m.insert("kimi-k2.7-code", "kimi-k2.7-code");
     m.insert("kimi-k2-thinking", "kimi-k2-thinking");
 
     // MiniMax models
+    m.insert("minimax-m3", "minimax-m3");
     m.insert("minimax-m2.7-highspeed", "minimax-m2.7-highspeed");
     m.insert("minimax-m2.7", "minimax-m2.7");
     m.insert("minimax-m2.5-highspeed", "minimax-m2.5-highspeed");
     m.insert("minimax-m2.5", "minimax-m2.5");
     m.insert("minimax-m2.5-free", "minimax-m2.5-free");
+
+    // MiMo models
+    m.insert("mimo-v2.5-pro-ultraspeed", "mimo-v2.5-pro-ultraspeed");
+    m.insert("<synthetic>", "<synthetic>");
 
     // Doubao models
     m.insert("doubao-seed-code", "seed-1.6");
@@ -246,9 +252,10 @@ static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
 
     // Kimi models
     m.insert("kimi-for-coding", "Kimi-K2.5");
-    m.insert("kimi-code/kimi-for-coding", "Kimi-K2.6");
+    m.insert("kimi-code/kimi-for-coding", "Kimi-K2.7-Code");
     m.insert("kimi-k2.5", "Kimi-K2.5");
     m.insert("kimi-k2.6", "Kimi-K2.6");
+    m.insert("kimi-k2.7-code", "Kimi-K2.7-Code");
     m.insert("kimi-k2-thinking", "Kimi-K2-Thinking");
     m.insert("k2p5", "Kimi-K2-Thinking");
     m.insert("k2-p5", "Kimi-K2-Thinking");
@@ -257,11 +264,16 @@ static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("kimi-k2-instruct-0905", "Kimi-K2.5");
 
     // MiniMax models
+    m.insert("minimax-m3", "MiniMax-M3");
     m.insert("minimax-m2.7-highspeed", "MiniMax-M2.7-Highspeed");
     m.insert("minimax-m2.7", "MiniMax-M2.7");
     m.insert("minimax-m2.5-highspeed", "MiniMax-M2.5-Highspeed");
     m.insert("minimax-m2.5", "MiniMax-M2.5");
     m.insert("minimax-m2.5-free", "MiniMax-M2.5-Free");
+
+    // MiMo models
+    m.insert("mimo-v2.5-pro-ultraspeed", "MiMo-V2.5-Pro-Ultraspeed");
+    m.insert("<synthetic>", "Synthetic");
 
     // Doubao models
     m.insert("doubao-seed-code", "Doubao-Seed-Code");

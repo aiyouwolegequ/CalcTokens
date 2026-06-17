@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-06-17
+
+### Added
+- **Time-Based Kimi Model Split**: The Kimi Code parser now maps the generic `kimi-code/kimi-for-coding` alias to versioned models based on message timestamp:
+  - `kimi-k2.5` for messages before 2026-01-27
+  - `kimi-k2.6` for messages from 2026-01-27 through 2026-04-12
+  - `kimi-k2.7-code` for messages from 2026-04-13 through 2026-06-11
+  - `kimi-k2.7-code` for messages from 2026-06-12 onwards (Kimi Code default)
+  This lets historical Kimi Code usage be reported against the model that was actually current at the time, instead of always attributing it to the latest default.
+
+### Fixed
+- **Stale Kimi Alias Row Cleanup**: Added an automatic database migration that removes leftover `kimi-code/kimi-for-coding` rows when a newer time-based split row exists for the same logical message, and rebuilds the `daily_summary` aggregate for the `kimi` client so reports reflect the corrected split immediately.
+
 ## [1.1.3] - 2026-06-17
 
 ### Fixed

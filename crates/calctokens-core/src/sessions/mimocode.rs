@@ -88,7 +88,15 @@ pub fn parse_mimocode_sqlite(db_path: &Path) -> Vec<UnifiedMessage> {
         let data_json: String = row.get(4)?;
         let worktree: Option<String> = row.get(5)?;
         let source_kind: String = row.get(6)?;
-        Ok((id, session_id, agent_id, time_created, data_json, worktree, source_kind))
+        Ok((
+            id,
+            session_id,
+            agent_id,
+            time_created,
+            data_json,
+            worktree,
+            source_kind,
+        ))
     }) {
         Ok(r) => r,
         Err(_) => return Vec::new(),
@@ -487,18 +495,30 @@ mod tests {
             "time": {"created": 1700000000000.0}
         }"#;
         insert_mimo_message(&conn, "row-native", "sess-native", "main", native_json);
-        insert_mimo_message(&conn, "row-imported", "sess-imported", "main", imported_json);
+        insert_mimo_message(
+            &conn,
+            "row-imported",
+            "sess-imported",
+            "main",
+            imported_json,
+        );
         drop(conn);
 
         let messages = parse_mimocode_sqlite(&db_path);
         assert_eq!(messages.len(), 2);
 
-        let native = messages.iter().find(|m| m.session_id == "sess-native").unwrap();
+        let native = messages
+            .iter()
+            .find(|m| m.session_id == "sess-native")
+            .unwrap();
         assert_eq!(native.client, "mimocode");
         assert_eq!(native.model_id, "mimo-auto");
         assert_eq!(native.provider_id, "mimo");
 
-        let imported = messages.iter().find(|m| m.session_id == "sess-imported").unwrap();
+        let imported = messages
+            .iter()
+            .find(|m| m.session_id == "sess-imported")
+            .unwrap();
         assert_eq!(imported.client, "claude");
         assert_eq!(imported.model_id, "claude-sonnet-4-5");
         assert_eq!(imported.provider_id, "anthropic");

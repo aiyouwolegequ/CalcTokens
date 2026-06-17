@@ -243,6 +243,36 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         [],
     )?;
 
+    // v1.1.4: Clean up stale Kimi alias rows left behind by the time-based model split.
+    // The Kimi parser now maps kimi-code/kimi-for-coding to kimi-k2.5/kimi-k2.6/kimi-k2.7-code
+    // based on message timestamp. Old rows with the generic alias remain as duplicates unless
+    // a newer split row exists for the same logical message. Delete those stale duplicates
+    // and force daily_summary to be rebuilt so aggregates reflect the corrected model split.
+    const KIMI_K25_RELEASE_MS: i64 = 1769472000000;
+    let deleted: usize = conn.execute(
+        "DELETE FROM messages
+         WHERE id IN (
+             SELECT old.id
+             FROM messages old
+             JOIN messages new ON old.client = new.client
+                 AND old.session_id = new.session_id
+                 AND old.timestamp = new.timestamp
+                 AND old.input_tokens = new.input_tokens
+                 AND old.output_tokens = new.output_tokens
+                 AND old.cache_read = new.cache_read
+                 AND old.cache_write = new.cache_write
+             WHERE old.client = 'kimi'
+                 AND old.model_id IN ('kimi-code/kimi-for-coding', 'kimi-for-coding')
+                 AND new.model_id IN ('kimi-k2.5', 'kimi-k2.6', 'kimi-k2.7-code')
+                 AND old.timestamp >= ?1
+         )",
+        params![KIMI_K25_RELEASE_MS],
+    )?;
+    if deleted > 0 {
+        conn.execute("DELETE FROM daily_summary WHERE client = 'kimi'", [])?;
+        refresh_daily_summary(conn)?;
+    }
+
     // daily_summary: pre-aggregated with canonical_id as the aggregation key.
     conn.execute(
         "CREATE TABLE IF NOT EXISTS daily_summary (

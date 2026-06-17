@@ -64,6 +64,30 @@ struct TokenUsage {
 const DEFAULT_MODEL: &str = "kimi-for-coding";
 const DEFAULT_PROVIDER: &str = "moonshotai";
 
+// Kimi Code CLI only records the unified alias `kimi-code/kimi-for-coding` in
+// wire.jsonl. We split this alias into the actual model version based on the
+// known release/switch dates, so historical `kimi` client usage can be
+// attributed to K2.5 / K2.6 / K2.7-Code.
+const KIMI_K25_RELEASE_MS: i64 = 1769472000000; // 2026-01-27 00:00:00 UTC
+const KIMI_K26_RELEASE_MS: i64 = 1776038400000; // 2026-04-13 00:00:00 UTC
+const KIMI_K27_RELEASE_MS: i64 = 1781222400000; // 2026-06-12 00:00:00 UTC
+
+fn resolve_kimi_code_model(model_id: &str, timestamp_ms: i64) -> String {
+    if model_id != "kimi-code/kimi-for-coding" && model_id != "kimi-for-coding" {
+        return model_id.to_string();
+    }
+
+    if timestamp_ms < KIMI_K25_RELEASE_MS {
+        model_id.to_string() // unknown pre-K2.5 alias, keep as-is
+    } else if timestamp_ms < KIMI_K26_RELEASE_MS {
+        "kimi-k2.5".to_string()
+    } else if timestamp_ms < KIMI_K27_RELEASE_MS {
+        "kimi-k2.6".to_string()
+    } else {
+        "kimi-k2.7-code".to_string()
+    }
+}
+
 /// Read model name from config files (.kimi/config.json or .kimi-code/config.toml)
 fn read_model_from_config(wire_path: &Path) -> String {
     for ancestor in wire_path.ancestors() {
@@ -175,11 +199,14 @@ pub fn parse_kimi_file(path: &Path) -> Vec<UnifiedMessage> {
                 continue;
             }
 
-            let model = wire_line.model.unwrap_or_else(|| model_from_config.clone());
             let timestamp_ms = wire_line
                 .time
                 .map(|t| t as i64)
                 .unwrap_or_else(|| file_modified_timestamp_ms(path));
+            let model = resolve_kimi_code_model(
+                &wire_line.model.unwrap_or_else(|| model_from_config.clone()),
+                timestamp_ms,
+            );
 
             messages.push(UnifiedMessage::new_with_dedup(
                 "kimi",
@@ -242,11 +269,12 @@ pub fn parse_kimi_file(path: &Path) -> Vec<UnifiedMessage> {
         }
 
         let dedup_key = payload.message_id;
+        let model = resolve_kimi_code_model(&model_from_config, timestamp_ms);
 
         messages.push(UnifiedMessage::new_with_dedup(
             "kimi",
-            model_from_config.clone(),
-            provider_for_kimi_model(&model_from_config),
+            model.clone(),
+            provider_for_kimi_model(&model),
             session_id.clone(),
             timestamp_ms,
             TokenBreakdown {
@@ -294,7 +322,8 @@ mod tests {
 
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].client, "kimi");
-        assert_eq!(messages[0].model_id, "kimi-for-coding");
+        // 1770983426420 = 2026-02-13, falls in K2.5 window
+        assert_eq!(messages[0].model_id, "kimi-k2.5");
         assert_eq!(messages[0].provider_id, "moonshotai");
         assert_eq!(messages[0].tokens.input, 1562);
         assert_eq!(messages[0].tokens.output, 2463);
@@ -354,13 +383,31 @@ mod tests {
 
         assert_eq!(messages.len(), 1); // Only usageScope "turn" is parsed
         assert_eq!(messages[0].client, "kimi");
-        assert_eq!(messages[0].model_id, "kimi-code/kimi-for-coding");
+        // 1780631837221 = 2026-06-05, falls in K2.6 window
+        assert_eq!(messages[0].model_id, "kimi-k2.6");
         assert_eq!(messages[0].provider_id, "moonshotai");
         assert_eq!(messages[0].tokens.input, 3032);
         assert_eq!(messages[0].tokens.output, 121);
         assert_eq!(messages[0].tokens.cache_read, 13312);
         assert_eq!(messages[0].tokens.cache_write, 100);
         assert_eq!(messages[0].timestamp, 1780631837221);
+    }
+
+    #[test]
+    fn test_parse_kimi_code_splits_alias_by_timestamp() {
+        let content = r#"{"type":"usage.record","model":"kimi-code/kimi-for-coding","usage":{"inputOther":100,"output":10,"inputCacheRead":0,"inputCacheCreation":0},"usageScope":"turn","time":1769472000000}
+{"type":"usage.record","model":"kimi-code/kimi-for-coding","usage":{"inputOther":100,"output":10,"inputCacheRead":0,"inputCacheCreation":0},"usageScope":"turn","time":1776038400000}
+{"type":"usage.record","model":"kimi-code/kimi-for-coding","usage":{"inputOther":100,"output":10,"inputCacheRead":0,"inputCacheCreation":0},"usageScope":"turn","time":1781222400000}
+{"type":"usage.record","model":"kimi-code/kimi-for-coding","usage":{"inputOther":100,"output":10,"inputCacheRead":0,"inputCacheCreation":0},"usageScope":"turn","time":1781222400001}"#;
+        let file = create_test_file(content);
+
+        let messages = parse_kimi_file(file.path());
+
+        assert_eq!(messages.len(), 4);
+        assert_eq!(messages[0].model_id, "kimi-k2.5");
+        assert_eq!(messages[1].model_id, "kimi-k2.6");
+        assert_eq!(messages[2].model_id, "kimi-k2.7-code");
+        assert_eq!(messages[3].model_id, "kimi-k2.7-code");
     }
 
     #[test]
@@ -445,6 +492,8 @@ mod tests {
         let messages = parse_kimi_file(file.path());
 
         assert_eq!(messages.len(), 1);
+        // 1771123711615 = 2026-02-15, falls in K2.5 window
+        assert_eq!(messages[0].model_id, "kimi-k2.5");
         assert_eq!(messages[0].tokens.input, 1508);
         assert_eq!(messages[0].tokens.output, 205);
         assert_eq!(messages[0].tokens.cache_read, 4864);

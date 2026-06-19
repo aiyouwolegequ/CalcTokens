@@ -32,29 +32,43 @@ Recent history uses concise conventional-style messages such as `fix: add missin
 
 ## Release Workflow
 
-1. Bump version
+1. Prepare release changes
+   - If the release includes functional changes, commit those changes first with a scoped conventional-style message before creating the release commit.
    - Update the version in `Cargo.toml` (root and workspace members as needed).
+   - Update `Cargo.lock` so the root package and workspace crates show the same release version.
    - Add a new section to `CHANGELOG.md` summarizing the release.
+   - Keep `README.md` aligned with user-facing report/output changes.
    - Commit with a conventional-style message such as `chore: release vX.Y.Z`.
 
 2. Build release binaries locally
+   - Run `cargo fmt --check`, `cargo test`, and `cargo clippy --all-targets -- -D warnings`.
    - Run `cargo build --release` to produce the optimized binary at `target/release/calctokens`.
    - Verify the binary works: `./target/release/calctokens --version`.
 
 3. Tag and push
-   - Create an annotated tag: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`.
-   - Push the tag to trigger CI: `git push origin vX.Y.Z`.
+   - Extract the new `CHANGELOG.md` section into a temporary release notes file.
+   - Create an annotated tag using that notes file: `git tag -a vX.Y.Z -F /tmp/calctokens-vX.Y.Z-notes.md`.
+   - Push `main` and the tag: `git push origin main` and `git push origin vX.Y.Z`. The tag push triggers CI.
 
 4. GitHub Actions automated release
    - The repository has a GitHub Actions workflow that builds release artifacts for supported targets when a `v*` tag is pushed.
    - Wait for the workflow to complete and publish the release on GitHub.
+   - Verify the release has both assets:
+     - `calctokens-macos-arm64`
+     - `calctokens-linux-x86_64`
+   - Record both asset SHA256 digests from `gh release view vX.Y.Z --json assets`.
 
 5. Update the Homebrew formula
    - In the `homebrew-calctokens` repository, edit `Formula/calctokens.rb`.
-   - Update the `version` field to the new tag.
-   - Update the `sha256` for the macOS artifact (download the release tarball or use `shasum -a 256 <file>`).
-   - Validate the formula with `brew audit --strict aiyouwolegequ/calctokens/calctokens` and `brew test aiyouwolegequ/calctokens/calctokens` after the tap is updated. If `brew audit --strict --online` reports a newly published GitHub Release asset as unreachable while `curl -I <asset-url>`, `brew upgrade calctokens`, and `brew test` all succeed, treat it as a transient online reachability false negative and record that fallback explicitly in the release notes.
+   - Update every release URL and tag to the new `vX.Y.Z`.
+   - Update both platform SHA256 values:
+     - macOS arm64: `calctokens-macos-arm64`
+     - Linux x86_64: `calctokens-linux-x86_64`
+   - Verify asset reachability with `curl -I <asset-url>` for both platform URLs.
+   - Before pushing the tap, validate the edited formula with `brew audit --strict aiyouwolegequ/calctokens/calctokens`.
    - Commit and push the formula change.
+   - After the tap is pushed, run `brew update && brew upgrade calctokens`, then verify `calctokens --version` and `brew test aiyouwolegequ/calctokens/calctokens`.
+   - If `brew audit --strict --online` reports a newly published GitHub Release asset as unreachable while `curl -I <asset-url>`, `brew upgrade calctokens`, and `brew test` all succeed, treat it as a transient online reachability false negative and record that fallback explicitly in the release notes.
 
 6. Upgrade on remote hosts
    - Local macOS (this machine) — run directly:
@@ -74,6 +88,7 @@ Recent history uses concise conventional-style messages such as `fix: add missin
 
 7. Update project documentation
    - Update the Obsidian project doc at `/Users/felix/Library/Mobile Documents/iCloud~md~obsidian/Documents/Darchrow-Obsidian/Vibe_Coding/Project/CalcTokens.md` with the release notes. Follow the existing version-section format (date, added/fixed/changed subsections) and keep the document in sync with `CHANGELOG.md`.
+   - If macOS privacy permissions block access to the iCloud/Obsidian path, do not skip the documentation step silently. Provide a paste-ready Markdown section in the final response so the user can update the note manually, and state the exact permission/path error encountered.
 
 
 <claude-mem-context>

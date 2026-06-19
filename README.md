@@ -13,7 +13,7 @@ AI coding assistant token usage tracker with human-readable K/M/B/T units & real
 - Pre-aggregated `daily_summary` for fast model/monthly reports
 - K/M/B/T number formatting
 - Live USD → CNY exchange rate with daily caching + history tracking
-- Cache Write / Cache Read token breakdown
+- Cache token total and cache hit-rate breakdown
 - Share percentages (tokens in detail, cost in TOP X)
 - Intelligent delta comparison (last check, yesterday, or last month)
 - Monthly & Hourly trend reports
@@ -87,26 +87,26 @@ calctokens --json-output       # output JSON for scripts
   calctokens  --  Token Usage Report   [ TODAY ]
 
   SUMMARY
-╭────────┬───────┬────────┬─────────┬─────────┬────────┬────────╮
-│ Metric │ Input │ Output │ Cache W │ Cache R │ Total  │ CNY    │
-├────────┼───────┼────────┼─────────┼─────────┼────────┼────────┤
-│ TODAY  │ 4.58M │ 34.27K │ 301.65K │ 6.29M   │ 11.21M │ ¥12.03 │
-╰────────┴───────┴────────┴─────────┴─────────┴────────┴────────╯
+╭────────┬───────┬────────┬───────┬────────┬────────┬────────╮
+│ Metric │ Input │ Output │ Cache │ Cache% │ Total  │ CNY    │
+├────────┼───────┼────────┼───────┼────────┼────────┼────────┤
+│ TODAY  │ 4.58M │ 34.27K │ 6.59M │ 95.4%  │ 11.21M │ ¥12.03 │
+╰────────┴───────┴────────┴───────┴────────┴────────┴────────╯
 
   DELTA (vs yesterday)
-╭──────────────┬─────────┬──────────┬───────────┬───────────┬─────────┬─────────╮
-│ Δ Metric     │ Δ Input │ Δ Output │ Δ Cache W │ Δ Cache R │ Δ Total │ Δ CNY   │
-├──────────────┼─────────┼──────────┼───────────┼───────────┼─────────┼─────────┤
-│ vs yesterday │ +1.2M   │ +5.2K    │ +100K     │ +2.1M     │ +3.4M   │ +¥2.50  │
-╰──────────────┴─────────┴──────────┴───────────┴───────────┴─────────┴─────────╯
+╭──────────────┬─────────┬──────────┬─────────┬──────────┬─────────┬────────╮
+│ Δ Metric     │ Δ Input │ Δ Output │ Δ Cache │ Δ Cache% │ Δ Total │ Δ CNY  │
+├──────────────┼─────────┼──────────┼─────────┼──────────┼─────────┼────────┤
+│ vs yesterday │ +1.2M   │ +5.2K    │ +2.2M   │ +1.8pp   │ +3.4M   │ ¥+2.50 │
+╰──────────────┴─────────┴──────────┴─────────┴──────────┴─────────┴────────╯
 
   DETAIL
-╭───────┬────────────────────────┬────────┬───────┬─────────┬─────────┬───────┬───────┬───────╮
-│Client │Model                   │CNY     │Input  │Output   │Cache W  │Cache R│Total  │Share  │
-├───────┼────────────────────────┼────────┼───────┼─────────┼─────────┼───────┼───────┼───────┤
-│claude │MiniMax-M2.7-HighSpeed  │¥10.00  │4.14M  │19.69K   │301.65K  │2.03M  │6.49M  │57.9%  │
-│claude │MiniMax-M2.7            │¥2.03   │444.90K│14.58K   │0        │4.26M  │4.72M  │42.1%  │
-╰───────┴────────────────────────┴────────┴───────┴─────────┴─────────┴───────┴───────┴───────╯
+╭───────┬────────────────────────┬────────┬───────┬─────────┬───────┬────────┬───────┬───────╮
+│Client │Model                   │CNY     │Input  │Output   │Cache  │Cache%  │Total  │Share  │
+├───────┼────────────────────────┼────────┼───────┼─────────┼───────┼────────┼───────┼───────┤
+│claude │MiniMax-M2.7-HighSpeed  │¥10.00  │4.14M  │19.69K   │2.33M  │87.1%   │6.49M  │57.9%  │
+│claude │MiniMax-M2.7            │¥2.03   │444.90K│14.58K   │4.26M  │100.0%  │4.72M  │42.1%  │
+╰───────┴────────────────────────┴────────┴───────┴─────────┴───────┴────────┴───────┴───────╯
 
   TOP 3 COST
 ╭───┬────────────────────────┬───────┬────────┬───────╮

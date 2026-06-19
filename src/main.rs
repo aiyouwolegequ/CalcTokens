@@ -110,6 +110,11 @@ struct Stats {
     cost: f64,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct SyncStats {
+    changed: usize,
+}
+
 struct HistoryTotals {
     input: i64,
     output: i64,
@@ -466,7 +471,7 @@ fn sync_messages(
     conn: &Connection,
     rt: &Runtime,
     clients: Option<Vec<String>>,
-) -> Result<usize, Box<dyn std::error::Error>> {
+) -> Result<SyncStats, Box<dyn std::error::Error>> {
     let has_agy = antigravity::has_active_agy_process();
 
     // ── Antigravity auto sync hook ──
@@ -491,16 +496,16 @@ fn sync_messages(
     let tx = conn.unchecked_transaction()?;
 
     // Historical messages must never be deleted just because their original
-    // source files have been rotated. Use INSERT OR REPLACE so parser fixes
-    // (canonical IDs, providers, timestamps, client attribution) update existing
-    // rows by message_key.
+    // source files have been rotated. The conflict update has a null-safe
+    // WHERE guard so parser fixes still update existing rows by message_key
+    // without rewriting identical history on every run.
     //
     // NOTE: daily_summary is intentionally NOT deleted here. It is refreshed
     // after this function returns so that a sync that discovers zero new
     // messages does not leave the pre-aggregated table empty.
     {
         let mut stmt = tx.prepare(
-            "INSERT OR REPLACE INTO messages
+            "INSERT INTO messages
              (client, model_id, canonical_id, provider_id, session_id,
               workspace_key, workspace_label,
               timestamp, date,
@@ -508,8 +513,46 @@ fn sync_messages(
               cost, message_count, agent, is_turn_start, message_key)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
                      ?9, ?10, ?11, ?12, ?13,
-                     ?14, ?15, ?16, ?17, ?18, ?19)",
+                     ?14, ?15, ?16, ?17, ?18, ?19)
+             ON CONFLICT(message_key) DO UPDATE SET
+                client = excluded.client,
+                model_id = excluded.model_id,
+                canonical_id = excluded.canonical_id,
+                provider_id = excluded.provider_id,
+                session_id = excluded.session_id,
+                workspace_key = excluded.workspace_key,
+                workspace_label = excluded.workspace_label,
+                timestamp = excluded.timestamp,
+                date = excluded.date,
+                input_tokens = excluded.input_tokens,
+                output_tokens = excluded.output_tokens,
+                cache_read = excluded.cache_read,
+                cache_write = excluded.cache_write,
+                reasoning = excluded.reasoning,
+                cost = excluded.cost,
+                message_count = excluded.message_count,
+                agent = excluded.agent,
+                is_turn_start = excluded.is_turn_start
+             WHERE messages.client IS NOT excluded.client
+                OR messages.model_id IS NOT excluded.model_id
+                OR messages.canonical_id IS NOT excluded.canonical_id
+                OR messages.provider_id IS NOT excluded.provider_id
+                OR messages.session_id IS NOT excluded.session_id
+                OR messages.workspace_key IS NOT excluded.workspace_key
+                OR messages.workspace_label IS NOT excluded.workspace_label
+                OR messages.timestamp IS NOT excluded.timestamp
+                OR messages.date IS NOT excluded.date
+                OR messages.input_tokens IS NOT excluded.input_tokens
+                OR messages.output_tokens IS NOT excluded.output_tokens
+                OR messages.cache_read IS NOT excluded.cache_read
+                OR messages.cache_write IS NOT excluded.cache_write
+                OR messages.reasoning IS NOT excluded.reasoning
+                OR messages.cost IS NOT excluded.cost
+                OR messages.message_count IS NOT excluded.message_count
+                OR messages.agent IS NOT excluded.agent
+                OR messages.is_turn_start IS NOT excluded.is_turn_start",
         )?;
+        let mut changed = 0usize;
         for msg in &messages {
             let key = msg.dedup_key.clone().unwrap_or_else(|| {
                 format!(
@@ -525,7 +568,7 @@ fn sync_messages(
             let canonical_id = pricing::aliases::resolve_alias(&msg.model_id)
                 .unwrap_or(&msg.model_id)
                 .to_string();
-            stmt.execute(params![
+            changed += stmt.execute(params![
                 msg.client,
                 msg.model_id,
                 canonical_id,
@@ -547,22 +590,27 @@ fn sync_messages(
                 key,
             ])?;
         }
-    }
-    tx.commit()?;
+        drop(stmt);
+        tx.commit()?;
 
-    let after_count: usize = conn.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))?;
-    let inserted = after_count.saturating_sub(before_count);
-    if inserted == 0 && has_agy {
-        eprintln!("Warning: agy process is running, but 0 new messages were synced. If you recently used agy, this might indicate a sync issue.");
+        let after_count: usize =
+            conn.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))?;
+        let inserted = after_count.saturating_sub(before_count);
+        if inserted == 0 && has_agy {
+            eprintln!("Warning: agy process is running, but 0 new messages were synced. If you recently used agy, this might indicate a sync issue.");
+        }
+        Ok(SyncStats { changed })
     }
-    Ok(inserted)
 }
 
-/// Refresh daily_summary from raw messages, grouped by canonical_id.
-/// Uses INSERT OR REPLACE to upsert — only changed groups are written.
-/// canonical_id is never NULL after backfill — COALESCE is defensive.
+/// Rebuild daily_summary from raw messages, grouped by canonical_id.
+/// Called only after sync actually changes stored messages, or when the
+/// summary table is empty. canonical_id is never NULL after backfill —
+/// COALESCE is defensive.
 fn refresh_daily_summary(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute(
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM daily_summary", [])?;
+    tx.execute(
         "INSERT OR REPLACE INTO daily_summary
          (date, client, canonical_id, provider_id,
           input_tokens, output_tokens, cache_read, cache_write, reasoning,
@@ -577,7 +625,16 @@ fn refresh_daily_summary(conn: &Connection) -> rusqlite::Result<()> {
          GROUP BY date, client, COALESCE(canonical_id, model_id)",
         [],
     )?;
+    tx.commit()?;
     Ok(())
+}
+
+fn daily_summary_is_empty(conn: &Connection) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT NOT EXISTS (SELECT 1 FROM daily_summary LIMIT 1)",
+        [],
+        |row| row.get(0),
+    )
 }
 
 // ── SQLite-based report queries ─────────────────────────────────────────
@@ -1043,6 +1100,31 @@ fn share_pct(cost: f64, total_cost: f64) -> String {
     }
 }
 
+fn cache_total(cache_read: i64, cache_write: i64) -> i64 {
+    cache_read + cache_write
+}
+
+fn cache_hit_rate(cache_read: i64, cache_write: i64) -> f64 {
+    let total = cache_total(cache_read, cache_write);
+    if total > 0 {
+        cache_read as f64 / total as f64 * 100.0
+    } else {
+        0.0
+    }
+}
+
+fn fmt_pct(rate: f64) -> String {
+    format!("{:.1}%", rate)
+}
+
+fn fmt_pct_diff(rate: f64) -> String {
+    if rate == 0.0 {
+        String::from("0.0pp")
+    } else {
+        format!("{:+.1}pp", rate)
+    }
+}
+
 // ── View printers ───────────────────────────────────────────────────────
 
 #[allow(clippy::too_many_arguments)]
@@ -1076,17 +1158,19 @@ fn print_models_view(
         _ => "RANGE",
     };
 
-    let (delta_in, delta_out, delta_cache_read, delta_cache_write, delta_rmb) =
+    let (delta_in, delta_out, delta_cache_read, delta_cache_write, delta_cache_rate, delta_rmb) =
         if let Some(ref ds) = delta_stats {
             (
                 total_in - ds.input,
                 total_out - ds.output,
                 total_cache_read - ds.cache_read,
                 total_cache_write - ds.cache_write,
+                cache_hit_rate(total_cache_read, total_cache_write)
+                    - cache_hit_rate(ds.cache_read, ds.cache_write),
                 total_rmb - (ds.cost * exchange),
             )
         } else {
-            (0, 0, 0, 0, 0.0)
+            (0, 0, 0, 0, 0.0, 0.0)
         };
 
     let mut sum_builder = Builder::new();
@@ -1094,15 +1178,15 @@ fn print_models_view(
         let today = today_date.unwrap_or("-");
         (
             vec![
-                "Today", "Since", "Input", "Output", "Cache W", "Cache R", "Total", "CNY",
+                "Today", "Since", "Input", "Output", "Cache", "Cache%", "Total", "CNY",
             ],
             vec![
                 today.to_string(),
                 since.to_string(),
                 fmt_num(total_in as f64),
                 fmt_num(total_out as f64),
-                fmt_num(total_cache_write as f64),
-                fmt_num(total_cache_read as f64),
+                fmt_num(cache_total(total_cache_read, total_cache_write) as f64),
+                fmt_pct(cache_hit_rate(total_cache_read, total_cache_write)),
                 fmt_num((total_in + total_out + total_cache_write + total_cache_read) as f64),
                 format!("¥{:.2}", total_rmb),
             ],
@@ -1110,14 +1194,14 @@ fn print_models_view(
     } else {
         (
             vec![
-                "Metric", "Input", "Output", "Cache W", "Cache R", "Total", "CNY",
+                "Metric", "Input", "Output", "Cache", "Cache%", "Total", "CNY",
             ],
             vec![
                 metric_label.to_string(),
                 fmt_num(total_in as f64),
                 fmt_num(total_out as f64),
-                fmt_num(total_cache_write as f64),
-                fmt_num(total_cache_read as f64),
+                fmt_num(cache_total(total_cache_read, total_cache_write) as f64),
+                fmt_pct(cache_hit_rate(total_cache_read, total_cache_write)),
                 fmt_num((total_in + total_out + total_cache_write + total_cache_read) as f64),
                 format!("¥{:.2}", total_rmb),
             ],
@@ -1136,8 +1220,8 @@ fn print_models_view(
             "Δ Metric",
             "Δ Input",
             "Δ Output",
-            "Δ Cache W",
-            "Δ Cache R",
+            "Δ Cache",
+            "Δ Cache%",
             "Δ Total",
             "Δ CNY",
         ]);
@@ -1145,8 +1229,8 @@ fn print_models_view(
             delta_label,
             &fmt_diff(delta_in as f64),
             &fmt_diff(delta_out as f64),
-            &fmt_diff(delta_cache_write as f64),
-            &fmt_diff(delta_cache_read as f64),
+            &fmt_diff(cache_total(delta_cache_read, delta_cache_write) as f64),
+            &fmt_pct_diff(delta_cache_rate),
             &fmt_diff((delta_in + delta_out + delta_cache_read + delta_cache_write) as f64),
             &format!("¥{:+.2}", delta_rmb),
         ]);
@@ -1166,7 +1250,7 @@ fn print_models_view(
 
     let mut detail_builder = Builder::new();
     detail_builder.push_record([
-        "Client", "Model", "CNY", "Input", "Output", "Cache W", "Cache R", "Total", "Share",
+        "Client", "Model", "CNY", "Input", "Output", "Cache", "Cache%", "Total", "Share",
     ]);
     for entry in &entries {
         let (inp, out, cw, cr) = (
@@ -1189,8 +1273,8 @@ fn print_models_view(
             &format!("¥{:.2}", entry.cost * exchange),
             &fmt_num(inp),
             &fmt_num(out),
-            &fmt_num(cw),
-            &fmt_num(cr),
+            &fmt_num(cw + cr),
+            &fmt_pct(cache_hit_rate(entry.cache_read, entry.cache_write)),
             &fmt_num(total),
             &share_str,
         ]);
@@ -1281,7 +1365,7 @@ fn print_monthly_view(report: &MonthlyReport, exchange: f64) {
 
     let mut sum_builder = Builder::new();
     sum_builder.push_record([
-        "Period", "Input", "Output", "Cache W", "Cache R", "Total", "CNY", "Msgs",
+        "Period", "Input", "Output", "Cache", "Cache%", "Total", "CNY", "Msgs",
     ]);
     for entry in &report.entries {
         let (inp, out, cw, cr) = (
@@ -1294,8 +1378,8 @@ fn print_monthly_view(report: &MonthlyReport, exchange: f64) {
             &entry.month,
             &fmt_num(inp),
             &fmt_num(out),
-            &fmt_num(cw),
-            &fmt_num(cr),
+            &fmt_num(cw + cr),
+            &fmt_pct(cache_hit_rate(entry.cache_read, entry.cache_write)),
             &fmt_num(inp + out + cw + cr),
             &format!("¥{:.2}", entry.cost * exchange),
             &entry.message_count.to_string(),
@@ -1399,7 +1483,7 @@ fn print_pricing_view(model_id: &str, result: &pricing::lookup::LookupResult, ex
     let cache_rmb = p.cache_read_input_token_cost.unwrap_or(0.0) * 1_000_000.0 * exchange;
 
     let mut builder = Builder::new();
-    builder.push_record(["Model", "Source", "Input/M", "Output/M", "Cache R/M"]);
+    builder.push_record(["Model", "Source", "Input/M", "Output/M", "Cache Read/M"]);
     builder.push_record([
         model_id,
         &result.source,
@@ -1610,27 +1694,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         Some(args.client.clone())
     };
-    let _new_count = if args.no_sync {
-        0 // Skip sync entirely for read-only historical queries
+    let sync_stats = if args.no_sync {
+        SyncStats::default() // Skip sync entirely for read-only historical queries
     } else {
         match sync_messages(&conn, &rt, sync_clients.clone()) {
-            Ok(n) => n,
+            Ok(stats) => stats,
             Err(e) => {
                 eprintln!("Warning: message sync failed (data may be stale): {}", e);
-                0
+                SyncStats::default()
             }
         }
     };
-    // Whenever sync was attempted (even if zero new messages were found),
-    // rebuild daily_summary from the current messages table. This both
-    // populates the table after a fresh install/upgrade and prevents the
-    // pre-aggregated cache from ever being left empty after a sync run.
     if !args.no_sync {
-        if let Err(e) = conn.execute("DELETE FROM daily_summary", []) {
-            eprintln!("Warning: failed to clear daily_summary: {}", e);
-        }
-        if let Err(e) = refresh_daily_summary(&conn) {
-            eprintln!("Warning: daily_summary refresh failed: {}", e);
+        let should_refresh_summary =
+            sync_stats.changed > 0 || daily_summary_is_empty(&conn).unwrap_or(true);
+        if should_refresh_summary {
+            if let Err(e) = refresh_daily_summary(&conn) {
+                eprintln!("Warning: daily_summary refresh failed: {}", e);
+            }
         }
     }
 

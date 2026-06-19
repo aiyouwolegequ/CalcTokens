@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [1.1.9] - 2026-06-19
+
+### Fixed
+- **Fresh Database Initialization**: Create `daily_summary` before migrations that delete or refresh it, preventing fresh installs from failing with `no such table: daily_summary`.
+- **Antigravity Probe Noise**: Treat non-trajectory JSON responses from probed Antigravity ports as "no sessions" instead of printing noisy `trajectorySummaries` warnings.
+- **Client Filter Validation**: Unknown `--client` values now fail fast with the list of valid client IDs instead of silently returning empty reports.
+- **Hourly Local Time Buckets**: Hourly reports now group timestamps in local time to match the date filters used by daily and monthly reports.
+- **OpenRouter Upgrade Safety**: `calctokens upgrade` keeps the existing OpenRouter pricing cache unless a fresh metadata fetch succeeds.
+- **Offline Exchange Rate Fallback**: Reports can use a stale cached CNY exchange rate when the live exchange-rate request fails and the cached rate is still valid.
+
+### Changed
+- **Source Message Cache Format**: Replaced the internal source-message cache from `bincode` with JSON and bumped the cache schema so old derived caches are rebuilt automatically.
+- **Dependency Audit Cleanup**: Upgraded `tabled` and disabled unused derive features, removing the unmaintained dependency warnings reported by `cargo audit`.
+- **Clients View Startup**: `calctokens clients` now returns before opening the database or fetching exchange rates, so it works in offline and fresh-home environments.
+
 ## [1.1.8] - 2026-06-17
 
 ### Changed

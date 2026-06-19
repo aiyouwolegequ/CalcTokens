@@ -249,8 +249,7 @@ fn get_trajectory_summaries(
     match data.get("trajectorySummaries") {
         Some(Value::Object(obj)) => Ok(Some(obj)),
         Some(_) => Err("'trajectorySummaries' key is not an object".to_string()),
-        None if data.as_object().is_some_and(|obj| obj.is_empty()) => Ok(None),
-        None => Err("missing 'trajectorySummaries' key".to_string()),
+        None => Ok(None),
     }
 }
 
@@ -974,12 +973,21 @@ mod tests {
     }
 
     #[test]
-    fn get_trajectory_summaries_rejects_non_empty_response_without_key() {
+    fn get_trajectory_summaries_treats_missing_key_as_no_sessions() {
         let value = json!({"status": "ok"});
+
+        let summaries = get_trajectory_summaries(&value).unwrap();
+
+        assert!(summaries.is_none());
+    }
+
+    #[test]
+    fn get_trajectory_summaries_rejects_wrong_key_type() {
+        let value = json!({"trajectorySummaries": []});
 
         let err = get_trajectory_summaries(&value).unwrap_err();
 
-        assert!(err.contains("missing 'trajectorySummaries' key"));
+        assert!(err.contains("not an object"));
     }
 
     #[test]

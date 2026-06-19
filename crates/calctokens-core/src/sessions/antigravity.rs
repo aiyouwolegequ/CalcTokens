@@ -89,7 +89,7 @@ fn parse_usage_row(value: &Value, fallback_model: Option<&str>) -> Option<Unifie
         .get("responseId")
         .and_then(Value::as_str)
         .filter(|text| !text.trim().is_empty())
-        .map(|text| text.to_string());
+        .map(|text| format!("antigravity:{session_id}:{text}"));
 
     Some(UnifiedMessage::new_with_dedup(
         "antigravity",
@@ -144,7 +144,10 @@ mod tests {
         assert_eq!(messages[0].model_id, "claude-sonnet-4.6");
         assert_eq!(messages[0].tokens.input, 12);
         assert_eq!(messages[0].tokens.reasoning, 1);
-        assert_eq!(messages[0].dedup_key.as_deref(), Some("resp-1"));
+        assert_eq!(
+            messages[0].dedup_key.as_deref(),
+            Some("antigravity:abc:resp-1")
+        );
     }
 
     #[test]

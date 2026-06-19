@@ -1,6 +1,5 @@
 use crate::sessions::codex::CodexParseState;
 use crate::UnifiedMessage;
-use bincode::Options;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -10,8 +9,8 @@ use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-const CACHE_SCHEMA_VERSION: u32 = 14;
-const CACHE_FILENAME: &str = "source-message-cache.bin";
+const CACHE_SCHEMA_VERSION: u32 = 15;
+const CACHE_FILENAME: &str = "source-message-cache.json";
 const CACHE_LOCK_FILENAME: &str = "source-message-cache.lock";
 const MAX_CACHE_FILE_BYTES: u64 = 256 * 1024 * 1024;
 const FINGERPRINT_SAMPLE_BYTES: usize = 4096;
@@ -450,10 +449,7 @@ impl SourceMessageCache {
         let write_result = (|| -> std::io::Result<()> {
             let file = File::create(&tmp_path)?;
             let mut writer = BufWriter::new(file);
-            bincode::options()
-                .with_limit(MAX_CACHE_FILE_BYTES)
-                .serialize_into(&mut writer, &store)
-                .map_err(std::io::Error::other)?;
+            serde_json::to_writer(&mut writer, &store).map_err(std::io::Error::other)?;
             writer.flush()?;
             writer.get_ref().sync_all()?;
             crate::fs_atomic::replace_file(&tmp_path, &final_path)?;
@@ -482,10 +478,7 @@ fn read_store_from_path(path: &Path) -> Option<CachedSourceStore> {
     }
 
     let reader = BufReader::new(file);
-    let store: CachedSourceStore = bincode::options()
-        .with_limit(MAX_CACHE_FILE_BYTES)
-        .deserialize_from(reader)
-        .ok()?;
+    let store: CachedSourceStore = serde_json::from_reader(reader).ok()?;
     if store.schema_version != CACHE_SCHEMA_VERSION {
         return None;
     }
@@ -513,10 +506,7 @@ fn read_store_from_path_status(path: &Path) -> CacheReadStatus {
     }
 
     let reader = BufReader::new(file);
-    let store: CachedSourceStore = match bincode::options()
-        .with_limit(MAX_CACHE_FILE_BYTES)
-        .deserialize_from(reader)
-    {
+    let store: CachedSourceStore = match serde_json::from_reader(reader) {
         Ok(store) => store,
         Err(_) => return CacheReadStatus::Invalid,
     };
@@ -1007,7 +997,7 @@ mod tests {
             };
 
             let writer = BufWriter::new(File::create(&cache_file).unwrap());
-            bincode::options().serialize_into(writer, &store).unwrap();
+            serde_json::to_writer(writer, &store).unwrap();
 
             let loaded = SourceMessageCache::load();
             assert!(loaded.entries.is_empty());
@@ -1135,7 +1125,7 @@ mod tests {
             entries: vec![entry],
         };
         let writer = BufWriter::new(File::create(&legacy_path).unwrap());
-        bincode::options().serialize_into(writer, &store).unwrap();
+        serde_json::to_writer(writer, &store).unwrap();
 
         let loaded = SourceMessageCache::load();
         assert!(loaded.get(source.path()).is_some());
@@ -1178,7 +1168,7 @@ mod tests {
             entries: vec![entry],
         };
         let writer = BufWriter::new(File::create(&legacy_path).unwrap());
-        bincode::options().serialize_into(writer, &store).unwrap();
+        serde_json::to_writer(writer, &store).unwrap();
 
         let loaded = SourceMessageCache::load();
         assert!(loaded.get(source.path()).is_some());

@@ -275,10 +275,11 @@ async fn fetch_author_pricing(
     Some((model_id, pricing))
 }
 
-/// Fetch all models and get author pricing for each
-pub async fn fetch_all_models() -> HashMap<String, ModelPricing> {
-    if let Some(cached) = load_cached() {
-        return cached;
+async fn fetch_all_models_inner(use_cache: bool) -> Result<HashMap<String, ModelPricing>, String> {
+    if use_cache {
+        if let Some(cached) = load_cached() {
+            return Ok(cached);
+        }
     }
 
     let client = Arc::new(
@@ -325,39 +326,35 @@ pub async fn fetch_all_models() -> HashMap<String, ModelPricing> {
             }
 
             if !status.is_success() {
-                eprintln!("[calctokens] OpenRouter models API returned {}", status);
-                break 'retry Vec::new();
+                return Err(format!("OpenRouter models API returned {}", status));
             }
 
             let data: ModelsListResponse =
                 match parse_json_response_limited(response, MAX_MODELS_RESPONSE_BYTES).await {
                     Ok(d) => d,
                     Err(e) => {
-                        eprintln!("[calctokens] OpenRouter models JSON parse failed: {}", e);
-                        break 'retry Vec::new();
+                        return Err(format!("OpenRouter models JSON parse failed: {}", e));
                     }
                 };
 
             break 'retry match collect_model_fallbacks(data) {
                 Ok(models) => models,
-                Err(e) => {
-                    eprintln!("[calctokens] {}", e);
-                    Vec::new()
-                }
+                Err(e) => return Err(e),
             };
         }
 
-        if let Some(err) = &last_error {
-            eprintln!(
-                "[calctokens] OpenRouter fetch failed after {} retries: {}",
-                MAX_RETRIES, err
-            );
-        }
-        Vec::new()
+        return Err(last_error
+            .map(|err| {
+                format!(
+                    "OpenRouter fetch failed after {} retries: {}",
+                    MAX_RETRIES, err
+                )
+            })
+            .unwrap_or_else(|| "OpenRouter fetch returned no data".to_string()));
     };
 
     if models_with_fallback.is_empty() {
-        return HashMap::new();
+        return Err("OpenRouter returned no models".to_string());
     }
 
     let mut result = HashMap::new();
@@ -407,7 +404,27 @@ pub async fn fetch_all_models() -> HashMap<String, ModelPricing> {
         }
     }
 
-    result
+    if result.is_empty() {
+        return Err("OpenRouter returned no usable model pricing".to_string());
+    }
+
+    Ok(result)
+}
+
+/// Fetch all models and get author pricing for each.
+pub async fn fetch_all_models() -> HashMap<String, ModelPricing> {
+    match fetch_all_models_inner(true).await {
+        Ok(models) => models,
+        Err(e) => {
+            eprintln!("[calctokens] {}", e);
+            HashMap::new()
+        }
+    }
+}
+
+/// Fetch fresh OpenRouter models, bypassing the on-disk cache.
+pub async fn fetch_all_models_fresh() -> Result<HashMap<String, ModelPricing>, String> {
+    fetch_all_models_inner(false).await
 }
 
 pub async fn fetch_all_mapped() -> HashMap<String, ModelPricing> {

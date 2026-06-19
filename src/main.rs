@@ -219,6 +219,31 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         [],
     )?;
 
+    // daily_summary: pre-aggregated with canonical_id as the aggregation key.
+    // Create this before any migration cleanup that deletes or refreshes rows.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS daily_summary (
+            date TEXT NOT NULL,
+            client TEXT NOT NULL,
+            canonical_id TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            input_tokens INTEGER NOT NULL,
+            output_tokens INTEGER NOT NULL,
+            cache_read INTEGER NOT NULL,
+            cache_write INTEGER NOT NULL,
+            reasoning INTEGER NOT NULL DEFAULT 0,
+            cost REAL NOT NULL,
+            message_count INTEGER NOT NULL,
+            turn_count INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (date, client, canonical_id)
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_daily_summary_canonical ON daily_summary(canonical_id)",
+        [],
+    )?;
+
     // Backfill canonical_id for existing rows that don't have one yet.
     // Uses resolve_alias() to map raw/pretty model_ids to a stable canonical form.
     backfill_canonical_ids(conn)?;
@@ -272,30 +297,6 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("DELETE FROM daily_summary WHERE client = 'kimi'", [])?;
         refresh_daily_summary(conn)?;
     }
-
-    // daily_summary: pre-aggregated with canonical_id as the aggregation key.
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS daily_summary (
-            date TEXT NOT NULL,
-            client TEXT NOT NULL,
-            canonical_id TEXT NOT NULL,
-            provider_id TEXT NOT NULL,
-            input_tokens INTEGER NOT NULL,
-            output_tokens INTEGER NOT NULL,
-            cache_read INTEGER NOT NULL,
-            cache_write INTEGER NOT NULL,
-            reasoning INTEGER NOT NULL DEFAULT 0,
-            cost REAL NOT NULL,
-            message_count INTEGER NOT NULL,
-            turn_count INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (date, client, canonical_id)
-        )",
-        [],
-    )?;
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_daily_summary_canonical ON daily_summary(canonical_id)",
-        [],
-    )?;
 
     // OpenRouter model metadata — upserted by 'calctokens upgrade'.
     conn.execute(
@@ -361,6 +362,16 @@ fn get_cached_exchange(conn: &Connection, currency: &str) -> rusqlite::Result<Op
     }
 }
 
+fn get_cached_exchange_any_age(conn: &Connection, currency: &str) -> rusqlite::Result<Option<f64>> {
+    let mut stmt = conn.prepare("SELECT rate FROM exchange_cache WHERE currency = ?")?;
+    let mut rows = stmt.query(params![currency])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(row.get(0)?))
+    } else {
+        Ok(None)
+    }
+}
+
 fn save_exchange_cache(conn: &Connection, currency: &str, rate: f64) -> rusqlite::Result<()> {
     let today = Local::now().format("%Y-%m-%d").to_string();
     conn.execute(
@@ -368,6 +379,39 @@ fn save_exchange_cache(conn: &Connection, currency: &str, rate: f64) -> rusqlite
         params![currency, rate, today],
     )?;
     Ok(())
+}
+
+fn load_exchange_rate_with<F>(
+    conn: &Connection,
+    currency: &str,
+    fetch: F,
+) -> Result<f64, Box<dyn std::error::Error>>
+where
+    F: FnOnce() -> Result<f64, Box<dyn std::error::Error>>,
+{
+    if let Some(cached) = get_cached_exchange(conn, currency)? {
+        if let Some(rate) = validate_cny_rate(cached) {
+            return Ok(rate);
+        }
+    }
+
+    match fetch() {
+        Ok(rate) => {
+            save_exchange_cache(conn, currency, rate)?;
+            Ok(rate)
+        }
+        Err(err) => {
+            if let Some(cached) = get_cached_exchange_any_age(conn, currency)? {
+                if let Some(rate) = validate_cny_rate(cached) {
+                    eprintln!(
+                        "Warning: failed to refresh {currency} exchange rate; using stale cached rate"
+                    );
+                    return Ok(rate);
+                }
+            }
+            Err(err)
+        }
+    }
 }
 
 fn get_last_record(conn: &Connection, range: &str) -> rusqlite::Result<Option<HistoryRecord>> {
@@ -556,6 +600,28 @@ fn build_date_filter(args: &Args) -> (Option<String>, Option<String>) {
     } else {
         (args.since.clone(), args.until.clone())
     }
+}
+
+fn validate_client_filters(clients: &[String]) -> Result<(), String> {
+    let invalid: Vec<&str> = clients
+        .iter()
+        .map(|client| client.as_str())
+        .filter(|client| *client != "synthetic" && ClientId::from_str(client).is_none())
+        .collect();
+
+    if invalid.is_empty() {
+        return Ok(());
+    }
+
+    let mut valid: Vec<&str> = ClientId::ALL.iter().map(|client| client.as_str()).collect();
+    valid.push("synthetic");
+    valid.sort_unstable();
+
+    Err(format!(
+        "unknown client filter(s): {}. Valid clients: {}",
+        invalid.join(", "),
+        valid.join(", ")
+    ))
 }
 
 /// Build SQL WHERE clause and collect parameters for date / year / client filters.
@@ -822,7 +888,7 @@ fn query_hourly_report(
 
     // Build SQL without format! %% escaping — use concat to avoid confusion.
     let sql = [
-        "SELECT strftime('%Y-%m-%d %H:00', datetime(timestamp/1000, 'unixepoch')) as hour,",
+        "SELECT strftime('%Y-%m-%d %H:00', datetime(timestamp/1000, 'unixepoch', 'localtime')) as hour,",
         "       GROUP_CONCAT(DISTINCT client),",
         "       GROUP_CONCAT(DISTINCT COALESCE(canonical_id, model_id)),",
         "       SUM(input_tokens), SUM(output_tokens),",
@@ -1390,15 +1456,16 @@ fn do_upgrade(conn: &Connection, rt: &Runtime) -> Result<(), Box<dyn std::error:
     )?;
     println!("[upgrade] USD/CNY rate: {:.4}", rate);
 
-    // 2. Delete pricing cache files to force fresh fetch
-    let or_cache = calctokens_core::pricing::cache::get_cache_path("pricing-openrouter.json");
-    std::fs::remove_file(&or_cache).ok();
-
-    // 3. Fetch fresh OpenRouter model data
+    // 2. Fetch fresh OpenRouter model data. Keep the old pricing cache intact
+    // unless the fresh fetch succeeds and the cache layer atomically replaces it.
     println!("[upgrade] Fetching OpenRouter model metadata...");
-    let models = rt.block_on(calctokens_core::pricing::openrouter::fetch_all_models());
+    let models = rt
+        .block_on(calctokens_core::pricing::openrouter::fetch_all_models_fresh())
+        .map_err(|e| {
+            std::io::Error::other(format!("OpenRouter model metadata sync failed: {e}"))
+        })?;
 
-    // 4. Upsert into openrouter_models table
+    // 3. Upsert into openrouter_models table
     let mut inserted = 0usize;
     let tx = conn.unchecked_transaction()?;
     {
@@ -1452,6 +1519,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    if let Err(e) = validate_client_filters(&args.client) {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, e).into());
+    }
+
+    // ── clients view ────────────────────────────────────────────────
+    if args.clients {
+        if args.json_output {
+            let home_dir = calctokens_core::get_home_dir_string(&None).unwrap_or_default();
+            let mut entries = Vec::new();
+            for cid in ClientId::ALL.iter() {
+                let def = cid.data();
+                let path = def.resolve_path(&home_dir);
+                let exists = std::path::Path::new(&path).exists();
+                entries
+                    .push(serde_json::json!({ "client": def.id, "path": path, "exists": exists }));
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({ "clients": entries }))?
+            )
+        } else {
+            print_clients_view();
+        }
+        return Ok(());
+    }
+
     let conn = Connection::open(db_path())?;
     init_db(&conn)?;
     let rt = Runtime::new()?;
@@ -1477,19 +1570,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "default"
     };
 
-    let exchange: f64 = if let Some(cached) = get_cached_exchange(&conn, "CNY")? {
-        if let Some(rate) = validate_cny_rate(cached) {
-            rate
-        } else {
-            let rate = fetch_cny_rate()?;
-            save_exchange_cache(&conn, "CNY", rate)?;
-            rate
-        }
-    } else {
-        let rate = fetch_cny_rate()?;
-        save_exchange_cache(&conn, "CNY", rate)?;
-        rate
-    };
+    let exchange = load_exchange_rate_with(&conn, "CNY", fetch_cny_rate)?;
 
     if get_cached_exchange(&conn, "PRICING")?.is_some() {
         std::env::set_var("CALCTOKENS_PRICING_CACHE_ONLY", "1");
@@ -1519,28 +1600,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             None => eprintln!("No pricing found for model: {}", model_id),
-        }
-        return Ok(());
-    }
-
-    // ── clients view ────────────────────────────────────────────────
-    if args.clients {
-        if args.json_output {
-            let home_dir = calctokens_core::get_home_dir_string(&None).unwrap_or_default();
-            let mut entries = Vec::new();
-            for cid in ClientId::ALL.iter() {
-                let def = cid.data();
-                let path = def.resolve_path(&home_dir);
-                let exists = std::path::Path::new(&path).exists();
-                entries
-                    .push(serde_json::json!({ "client": def.id, "path": path, "exists": exists }));
-            }
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&serde_json::json!({ "clients": entries }))?
-            )
-        } else {
-            print_clients_view();
         }
         return Ok(());
     }
@@ -1882,5 +1941,76 @@ mod tests {
         assert!(validate_cny_rate(0.0).is_none());
         assert!(validate_cny_rate(-1.0).is_none());
         assert!(validate_cny_rate(1000.0).is_none());
+    }
+
+    #[test]
+    fn init_db_succeeds_on_fresh_database() {
+        let conn = Connection::open_in_memory().unwrap();
+
+        init_db(&conn).unwrap();
+
+        let table_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'daily_summary'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(table_count, 1);
+    }
+
+    #[test]
+    fn load_exchange_rate_falls_back_to_stale_cached_rate() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO exchange_cache (currency, rate, fetched_date)
+             VALUES ('CNY', 7.1, '2000-01-01')",
+            [],
+        )
+        .unwrap();
+
+        let rate = load_exchange_rate_with(&conn, "CNY", || {
+            Err(std::io::Error::other("network down").into())
+        })
+        .unwrap();
+
+        assert_eq!(rate, 7.1);
+    }
+
+    #[test]
+    fn load_exchange_rate_rejects_invalid_stale_cached_rate() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO exchange_cache (currency, rate, fetched_date)
+             VALUES ('CNY', 1000.0, '2000-01-01')",
+            [],
+        )
+        .unwrap();
+
+        let err = load_exchange_rate_with(&conn, "CNY", || {
+            Err(std::io::Error::other("network down").into())
+        })
+        .unwrap_err();
+
+        assert!(err.to_string().contains("network down"));
+    }
+
+    #[test]
+    fn validate_client_filters_accepts_known_clients_and_synthetic() {
+        let clients = vec!["claude".to_string(), "synthetic".to_string()];
+
+        assert!(validate_client_filters(&clients).is_ok());
+    }
+
+    #[test]
+    fn validate_client_filters_rejects_unknown_clients() {
+        let clients = vec!["claud".to_string()];
+
+        let err = validate_client_filters(&clients).unwrap_err();
+
+        assert!(err.contains("unknown client filter(s): claud"));
+        assert!(err.contains("claude"));
     }
 }

@@ -79,22 +79,17 @@ Recent history uses concise conventional-style messages such as `fix: add missin
 <claude-mem-context>
 # Memory Context
 
-# [CalcTokens] recent context, 2026-06-12 5:22pm GMT+8
+# [CalcTokens] recent context, 2026-06-19 12:00pm GMT+8
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (19,031t read) | 485,242t work | 96% savings
+Stats: 50 obs (18,813t read) | 509,467t work | 96% savings
 
 ### May 21, 2026
-S3096 Release and deploy CalcTokens v0.8.4 with documentation updates for Antigravity stdout pollution fix (May 21 at 10:16 PM)
-5943 10:19p ✅ Project Documentation Updated with v0.8.4 Release Notes
-5944 10:20p ✅ CalcTokens v0.8.4 Documentation Completed with Technical Details
 S3097 Fixed table alignment issues in totaltokens CLI output when displaying CJK/fullwidth characters (May 21 at 10:20 PM)
-5945 10:23p 🔵 totaltokens CLI displays multi-machine token usage statistics
-5946 10:24p 🔴 Fixed table alignment for full-width Unicode characters in calc-tokens.sh
-5947 " ✅ Committed table alignment fix for CJK characters to Hermes-Memory
+5947 10:24p ✅ Committed table alignment fix for CJK characters to Hermes-Memory
 5948 " ✅ Pushed CJK table alignment fix to remote Hermes-Memory repository
 S3098 Complete documentation update for CJK table alignment fix in CalcTokens.md including development history and version tracking (May 21 at 10:25 PM)
 5949 10:25p ✅ Documented CJK table alignment fix in CalcTokens project documentation
@@ -121,7 +116,7 @@ S3126 CalcTokens项目代码优化调查：应用流量统计功能改进，重�
 S3148 Compared two CalcTokens binary files to identify platform differences (May 26 at 2:22 PM)
 ### May 27, 2026
 6300 11:56a 🔵 MCP codex_apps authentication token invalidated
-6301 12:45p 🔵 codex_apps client startup failure
+6301 12:45p 🔵 MCP codex_apps client startup failure
 6302 " 🔵 codex_apps MCP server network connectivity failure root cause identified
 ### May 29, 2026
 6407 11:52a 🔵 Kimi model name resolution path traced from config to pricing lookup
@@ -144,16 +139,23 @@ S3149 Unified release binary naming convention to include platform identifiers (
 S3150 Enhanced release workflow documentation with Obsidian sync step (May 29 at 4:56 PM)
 6423 4:57p ✅ Added Obsidian documentation sync step to release workflow
 6424 " ✅ Deployed release workflow documentation update to production
+S3151 Used workflow to add specific deployment host details to release workflow documentation (May 29 at 4:57 PM)
 6425 " ✅ Launched workflow to add specific host details to release upgrade step
 6426 " ✅ Expanded release workflow with specific deployment host details
 6427 4:58p ✅ Deployed host-specific deployment instructions to production
-S3151 Used workflow to add specific deployment host details to release workflow documentation (May 29 at 4:58 PM)
 ### Jun 3, 2026
 6589 5:38p 🔵 CalcTokens security review scope and architecture
 6590 5:41p 🔵 CalcTokens security scan shard A identified two candidate vulnerabilities
 ### Jun 4, 2026
 6600 8:31a ✅ CalcTokens upgraded to 1.0.3 on MacMini remote machine
 6601 " 🔵 CalcTokens Security Scan Discovery Phase Completed
+### Jun 13, 2026
+7308 10:49a ✅ Added Claude-Fable-5 pretty name alias mapping
+S3263 Fix Claude Fable-5 display name capitalization in CalcTokens reports and release v1.0.9 (Jun 13 at 10:49 AM)
+7309 11:04a 🔄 AGENTS.md converted to symlink
+### Jun 16, 2026
+7488 12:00p ✅ Homebrew formula validation fallback procedure documented
+7489 " ✅ Homebrew Release Validation Fallback Guidance Added
 
-Access 485k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 509k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

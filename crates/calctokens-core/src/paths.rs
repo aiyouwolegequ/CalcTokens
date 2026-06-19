@@ -52,7 +52,7 @@ pub fn get_config_dir() -> PathBuf {
 
 /// Resolve the calctokens cache dir as `<config_dir>/cache`.
 ///
-/// Caches (TUI display data, source-message bincode, pricing JSON, the
+/// Caches (TUI display data, source-message JSON, pricing JSON, the
 /// OpenCode migration record, Wrapped fonts/images) all live under this
 /// single subdirectory so an isolated profile (`CALCTOKENS_CONFIG_DIR=...`)
 /// covers everything in one shot, and so `rm -rf <cache_dir>` is always

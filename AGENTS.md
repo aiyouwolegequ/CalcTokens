@@ -79,19 +79,17 @@ Recent history uses concise conventional-style messages such as `fix: add missin
 <claude-mem-context>
 # Memory Context
 
-# [CalcTokens] recent context, 2026-06-16 11:59am GMT+8
+# [CalcTokens] recent context, 2026-06-19 11:45am GMT+8
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (18,914t read) | 494,202t work | 96% savings
+Stats: 50 obs (18,813t read) | 509,467t work | 96% savings
 
 ### May 21, 2026
 S3097 Fixed table alignment issues in totaltokens CLI output when displaying CJK/fullwidth characters (May 21 at 10:20 PM)
-5945 10:23p 🔵 totaltokens CLI displays multi-machine token usage statistics
-5946 10:24p 🔴 Fixed table alignment for full-width Unicode characters in calc-tokens.sh
-5947 " ✅ Committed table alignment fix for CJK characters to Hermes-Memory
+5947 10:24p ✅ Committed table alignment fix for CJK characters to Hermes-Memory
 5948 " ✅ Pushed CJK table alignment fix to remote Hermes-Memory repository
 S3098 Complete documentation update for CJK table alignment fix in CalcTokens.md including development history and version tracking (May 21 at 10:25 PM)
 5949 10:25p ✅ Documented CJK table alignment fix in CalcTokens project documentation
@@ -155,6 +153,9 @@ S3151 Used workflow to add specific deployment host details to release workflow 
 7308 10:49a ✅ Added Claude-Fable-5 pretty name alias mapping
 S3263 Fix Claude Fable-5 display name capitalization in CalcTokens reports and release v1.0.9 (Jun 13 at 10:49 AM)
 7309 11:04a 🔄 AGENTS.md converted to symlink
+### Jun 16, 2026
+7488 12:00p ✅ Homebrew formula validation fallback procedure documented
+7489 " ✅ Homebrew Release Validation Fallback Guidance Added
 
-Access 494k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 509k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

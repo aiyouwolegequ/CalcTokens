@@ -243,6 +243,17 @@ fn parse_json_bytes_limited(body: &[u8], max_bytes: u64) -> Result<Value, String
     serde_json::from_slice(body).map_err(|err| format!("invalid JSON response: {}", err))
 }
 
+fn get_trajectory_summaries(
+    data: &Value,
+) -> Result<Option<&serde_json::Map<String, Value>>, String> {
+    match data.get("trajectorySummaries") {
+        Some(Value::Object(obj)) => Ok(Some(obj)),
+        Some(_) => Err("'trajectorySummaries' key is not an object".to_string()),
+        None if data.as_object().is_some_and(|obj| obj.is_empty()) => Ok(None),
+        None => Err("missing 'trajectorySummaries' key".to_string()),
+    }
+}
+
 fn append_json_line_bounded(
     lines: &mut Vec<String>,
     total_bytes: &mut usize,
@@ -784,10 +795,14 @@ pub fn sync_antigravity() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        let trajectories = match data.get("trajectorySummaries").and_then(|v| v.as_object()) {
-            Some(obj) => obj,
-            None => {
-                eprintln!("Warning: GetAllCascadeTrajectories response is missing 'trajectorySummaries' key on port {}", port);
+        let trajectories = match get_trajectory_summaries(&data) {
+            Ok(Some(obj)) => obj,
+            Ok(None) => continue,
+            Err(e) => {
+                eprintln!(
+                    "Warning: GetAllCascadeTrajectories response is {} on port {}",
+                    e, port
+                );
                 continue;
             }
         };
@@ -947,6 +962,24 @@ mod tests {
         let value = parse_json_bytes_limited(body, body.len() as u64).unwrap();
 
         assert!(value.get("trajectorySummaries").is_some());
+    }
+
+    #[test]
+    fn get_trajectory_summaries_treats_empty_response_as_no_sessions() {
+        let value = json!({});
+
+        let summaries = get_trajectory_summaries(&value).unwrap();
+
+        assert!(summaries.is_none());
+    }
+
+    #[test]
+    fn get_trajectory_summaries_rejects_non_empty_response_without_key() {
+        let value = json!({"status": "ok"});
+
+        let err = get_trajectory_summaries(&value).unwrap_err();
+
+        assert!(err.contains("missing 'trajectorySummaries' key"));
     }
 
     #[test]

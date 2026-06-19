@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-06-19
+
+### Added
+- **Cache Hit Rate Reporting**: Summary, detail, delta, and monthly report tables now show `Cache%`, the cache-read share of total cache tokens.
+
+### Changed
+- **Unified Cache Column**: `Cache W` and `Cache R` are now combined into a single `Cache` column, with `Cache%` taking the former `Cache R` position.
+- **Faster Default Reports**: Message sync no longer rewrites unchanged historical rows, and `daily_summary` is rebuilt only when stored messages changed or the summary table is empty.
+
 ## [1.1.9] - 2026-06-19
 
 ### Fixed

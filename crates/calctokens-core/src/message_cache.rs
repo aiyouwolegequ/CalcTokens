@@ -177,7 +177,7 @@ impl RelatedFileFingerprint {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct CodexIncrementalCache {
     pub state: CodexParseState,
     pub consumed_offset: u64,
@@ -240,7 +240,7 @@ impl CachedPath {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct CachedSourceEntry {
     pub path: CachedPath,
     pub fingerprint: SourceFingerprint,
@@ -335,6 +335,13 @@ impl SourceMessageCache {
 
     pub(crate) fn insert(&mut self, entry: CachedSourceEntry) {
         let key = entry.path.clone();
+        if self
+            .entries
+            .get(&key)
+            .is_some_and(|cached| cached == &entry)
+        {
+            return;
+        }
         self.entries.insert(key.clone(), entry);
         self.deleted_paths.remove(&key);
         self.dirty_keys.insert(key);
@@ -1050,6 +1057,24 @@ mod tests {
         }
 
         restore_env_var("HOME", original_home);
+    }
+
+    #[test]
+    fn test_insert_identical_entry_does_not_mark_dirty() {
+        let file = write_temp_file(b"{}\n");
+        let fingerprint = SourceFingerprint::from_path(file.path()).unwrap();
+        let entry = CachedSourceEntry::new(file.path(), fingerprint, Vec::new(), Vec::new(), None);
+
+        let mut cache = SourceMessageCache::default();
+        cache.insert(entry.clone());
+        assert!(cache.dirty);
+
+        cache.dirty = false;
+        cache.dirty_keys.clear();
+        cache.insert(entry);
+
+        assert!(!cache.dirty);
+        assert!(cache.dirty_keys.is_empty());
     }
 
     #[test]

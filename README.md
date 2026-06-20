@@ -11,13 +11,15 @@ AI coding assistant token usage tracker with human-readable K/M/B/T units & real
 - **Canonical ID layer**: raw `model_id` preserved for audit, `canonical_id` used for aggregation — historical data never rewritten
 - All messages stored permanently in `~/.calctokens.db` — independent of source log files
 - Pre-aggregated `daily_summary` for fast model/monthly reports
+- DB-first reports with source snapshot detection: unchanged sources skip expensive parsing and read SQLite directly
 - K/M/B/T number formatting
 - Live USD → CNY exchange rate with daily caching + history tracking
-- Cache token total and cache hit-rate breakdown
+- Cache token total and cache percentage breakdown
 - Share percentages (tokens in detail, cost in TOP X)
 - Intelligent delta comparison (last check, yesterday, or last month)
 - Monthly & Hourly trend reports
-- **`--no-sync` flag**: skip sync+refresh for ~5ms read-only reports (~700x speedup)
+- **`--sync` / `sync`**: force a local source sync before reports, or sync only without printing a report
+- **`--no-sync` flag**: force read-only historical reports from SQLite
 - **agy CLI support**: auto-discover Antigravity CLI sessions when gRPC listing API is unavailable
 - Client filtering (`-c/--client`)
 - Pricing lookup with CNY conversion (`--pricing`)
@@ -63,12 +65,14 @@ calctokens all                 # all-time usage, TOP 10 COST, no delta (alias: -
 calctokens monthly             # monthly trend report (alias: --monthly)
 calctokens hourly              # hourly usage history (alias: --hourly)
 calctokens clients             # all detected clients (alias: --clients)
+calctokens sync                # sync local source logs into SQLite, then exit
 calctokens upgrade             # sync OpenRouter metadata + exchange rates (alias: --upgrade)
 calctokens --pricing MODEL_ID  # model pricing lookup (CNY)
 calctokens --version           # print version
 calctokens -c claude           # filter by client
 calctokens -c kimi month       # filter by client + time range (can combine with positional cmd)
-calctokens --no-sync            # skip sync for instant reports (~5ms)
+calctokens --sync all          # force sync before all-time report
+calctokens --no-sync all       # read SQLite only, fastest historical report
 calctokens --since 2026-01-01  # filter by start date
 calctokens --year 2026         # filter by year
 calctokens --json-output       # output JSON for scripts
@@ -79,7 +83,11 @@ calctokens --json-output       # output JSON for scripts
 - **`--today`:** Shows **Today** vs **Yesterday**, TOP 3 COST.
 - **`--month`:** Shows **This Month** vs **Last Month**, TOP 5 COST.
 - **`--all`:** Shows **All-time**, TOP 10 COST.
-- **`--no-sync`:** Skip message sync and refresh. Works with any report type for instant (~5ms) read-only queries. Useful for historical browsing, script aggregation, and repeated lookups.
+- **Default sync behavior:** Before reports, CalcTokens compares a lightweight source snapshot stored in SQLite. If the source files have not changed, it skips parsing and reads `daily_summary` directly. If source files changed or the summary table is empty, it syncs first and then reports.
+- **`--sync`:** Force message sync before the selected report, for example `calctokens --sync all`.
+- **`sync`:** Run sync only, then exit. Use this for manual refreshes or scheduled jobs before later read-only reports.
+- **`--no-sync`:** Force SQLite-only reporting. This is the fastest mode and may show historical data if source logs changed since the last sync.
+- **`Cache%`:** Calculated as `Cache / Total * 100`, where `Cache = cache_read + cache_write` and `Total = input + output + cache_read + cache_write`.
 
 ## Output
 
@@ -90,22 +98,22 @@ calctokens --json-output       # output JSON for scripts
 ╭────────┬───────┬────────┬───────┬────────┬────────┬────────╮
 │ Metric │ Input │ Output │ Cache │ Cache% │ Total  │ CNY    │
 ├────────┼───────┼────────┼───────┼────────┼────────┼────────┤
-│ TODAY  │ 4.58M │ 34.27K │ 6.59M │ 95.4%  │ 11.21M │ ¥12.03 │
+│ TODAY  │ 4.58M │ 34.27K │ 6.59M │ 58.8%  │ 11.21M │ ¥12.03 │
 ╰────────┴───────┴────────┴───────┴────────┴────────┴────────╯
 
   DELTA (vs yesterday)
 ╭──────────────┬─────────┬──────────┬─────────┬──────────┬─────────┬────────╮
 │ Δ Metric     │ Δ Input │ Δ Output │ Δ Cache │ Δ Cache% │ Δ Total │ Δ CNY  │
 ├──────────────┼─────────┼──────────┼─────────┼──────────┼─────────┼────────┤
-│ vs yesterday │ +1.2M   │ +5.2K    │ +2.2M   │ +1.8pp   │ +3.4M   │ ¥+2.50 │
+│ vs yesterday │ +1.2M   │ +5.2K    │ +2.2M   │ +2.6pp   │ +3.4M   │ ¥+2.50 │
 ╰──────────────┴─────────┴──────────┴─────────┴──────────┴─────────┴────────╯
 
   DETAIL
 ╭───────┬────────────────────────┬────────┬───────┬─────────┬───────┬────────┬───────┬───────╮
 │Client │Model                   │CNY     │Input  │Output   │Cache  │Cache%  │Total  │Share  │
 ├───────┼────────────────────────┼────────┼───────┼─────────┼───────┼────────┼───────┼───────┤
-│claude │MiniMax-M2.7-HighSpeed  │¥10.00  │4.14M  │19.69K   │2.33M  │87.1%   │6.49M  │57.9%  │
-│claude │MiniMax-M2.7            │¥2.03   │444.90K│14.58K   │4.26M  │100.0%  │4.72M  │42.1%  │
+│claude │MiniMax-M2.7-HighSpeed  │¥10.00  │4.14M  │19.69K   │2.33M  │35.9%   │6.49M  │57.9%  │
+│claude │MiniMax-M2.7            │¥2.03   │444.90K│14.58K   │4.26M  │90.3%   │4.72M  │42.1%  │
 ╰───────┴────────────────────────┴────────┴───────┴─────────┴───────┴────────┴───────┴───────╯
 
   TOP 3 COST
@@ -142,6 +150,7 @@ Historical `messages.cost` is computed at insert time and never backfilled — p
 |-------|---------|
 | `messages` | Authoritative raw data (model_id + canonical_id, append-only) |
 | `daily_summary` | Pre-aggregated by (date, client, canonical_id) |
+| `sync_source_snapshots` | Lightweight source file fingerprint used to skip unchanged syncs |
 | `openrouter_models` | OpenRouter model metadata + pricing, upserted by `--upgrade` |
 | `exchange_rates` | USD/CNY rate history |
 | `exchange_cache` | Daily rate cache |

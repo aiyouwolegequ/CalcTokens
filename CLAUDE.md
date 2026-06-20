@@ -13,6 +13,8 @@ CalcTokens is a Rust workspace. The root package builds the `calctokens` CLI fro
 - `cargo fmt --check`: verify Rust formatting.
 - `cargo clippy --all-targets -- -D warnings`: run lint checks with warnings treated as failures.
 - `cargo run -- --no-sync`: run the CLI locally without refreshing external data.
+- `cargo run -- --sync --all`: force local source sync before an all-time report.
+- `cargo run -- sync`: refresh local source logs into SQLite without printing a report.
 
 ## Coding Style & Naming Conventions
 
@@ -44,6 +46,10 @@ Recent history uses concise conventional-style messages such as `fix: add missin
    - Run `cargo fmt --check`, `cargo test`, and `cargo clippy --all-targets -- -D warnings`.
    - Run `cargo build --release` to produce the optimized binary at `target/release/calctokens`.
    - Verify the binary works: `./target/release/calctokens --version`.
+   - For releases touching sync or reporting behavior, verify all three report modes:
+     - `./target/release/calctokens --no-sync --all` reads SQLite only.
+     - `./target/release/calctokens --sync --all` forces a source sync before reporting.
+     - `./target/release/calctokens --all` uses the DB-first fast path when the stored source snapshot is unchanged, and syncs when sources changed or `daily_summary` is empty.
 
 3. Tag and push
    - Extract the new `CHANGELOG.md` section into a temporary release notes file.
@@ -88,13 +94,14 @@ Recent history uses concise conventional-style messages such as `fix: add missin
 
 7. Update project documentation
    - Update the Obsidian project doc at `/Users/felix/Library/Mobile Documents/iCloud~md~obsidian/Documents/Darchrow-Obsidian/Vibe_Coding/Project/CalcTokens.md` with the release notes. Follow the existing version-section format (date, added/fixed/changed subsections) and keep the document in sync with `CHANGELOG.md`.
+   - For sync/reporting releases, include a short usage note covering `calctokens --sync <report>`, `calctokens sync`, default source snapshot detection, and `calctokens --no-sync <report>`.
    - If macOS privacy permissions block access to the iCloud/Obsidian path, do not skip the documentation step silently. Provide a paste-ready Markdown section in the final response so the user can update the note manually, and state the exact permission/path error encountered.
 
 
 <claude-mem-context>
 # Memory Context
 
-# [CalcTokens] recent context, 2026-06-19 9:41pm GMT+8
+# [CalcTokens] recent context, 2026-06-19 10:16pm GMT+8
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE

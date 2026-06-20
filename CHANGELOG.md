@@ -2,10 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+- **Explicit Sync Modes**: Added `--sync` to force a sync before any report, and `calctokens sync` to refresh the local SQLite database without printing a report.
+
+### Changed
+- **DB-First Default Reports**: Default reports now compare a lightweight source snapshot before parsing logs. If source files have not changed, CalcTokens reads the pre-aggregated SQLite data directly; if sources changed or `daily_summary` is empty, it syncs before reporting.
+- **Source Cache Writes**: Source message cache entries that are byte-for-byte equivalent to the cached entry no longer mark the cache dirty, avoiding unnecessary full cache rewrites.
+
+### Fixed
+- **Cache Percentage Calculation**: `Cache%` now reports cache tokens as a share of total tokens (`Cache / Total * 100`) instead of cache-read share within cache tokens.
+
 ## [1.2.0] - 2026-06-19
 
 ### Added
-- **Cache Hit Rate Reporting**: Summary, detail, delta, and monthly report tables now show `Cache%`, the cache-read share of total cache tokens.
+- **Cache Percentage Reporting**: Summary, detail, delta, and monthly report tables now show `Cache%`, the cache token share of total tokens.
 
 ### Changed
 - **Unified Cache Column**: `Cache W` and `Cache R` are now combined into a single `Cache` column, with `Cache%` taking the former `Cache R` position.

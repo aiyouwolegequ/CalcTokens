@@ -7,6 +7,8 @@ use clap::Parser;
 use reqwest::blocking::Client;
 use rusqlite::{params, Connection};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
+use std::path::PathBuf;
 use tabled::builder::Builder;
 use tabled::settings::{object::Segment, Modify, Padding, Style, Width};
 use tokio::runtime::Runtime;
@@ -31,7 +33,7 @@ fn db_path() -> String {
     about = "AI coding assistant token usage tracker (CNY)"
 )]
 struct Args {
-    /// Optional command or report type: today, month, all, monthly, hourly, clients, upgrade
+    /// Optional command or report type: today, month, all, monthly, hourly, clients, upgrade, sync
     #[arg(index = 1, conflicts_with_all = ["today", "month", "all", "monthly", "hourly", "pricing", "clients", "upgrade"])]
     command: Option<String>,
     /// Filter by client(s): claude, opencode, codex, gemini, openclaw, hermes, kimi, qwen, antigravity, etc.
@@ -71,8 +73,11 @@ struct Args {
     #[arg(long, conflicts_with_all = ["today", "month", "all", "monthly", "hourly", "pricing", "clients", "command"])]
     upgrade: bool,
     /// Skip message sync and daily_summary refresh (read-only historical queries)
-    #[arg(long)]
+    #[arg(long, conflicts_with = "sync")]
     no_sync: bool,
+    /// Force message sync before running the selected report
+    #[arg(long)]
+    sync: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -113,6 +118,14 @@ struct Stats {
 #[derive(Debug, Clone, Copy, Default)]
 struct SyncStats {
     changed: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SourceSnapshot {
+    source_count: i64,
+    total_size: i64,
+    max_modified_ns: i64,
+    fingerprint: String,
 }
 
 struct HistoryTotals {
@@ -246,6 +259,20 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
     )?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_daily_summary_canonical ON daily_summary(canonical_id)",
+        [],
+    )?;
+
+    // Snapshot of local source files used to skip expensive parsing when
+    // the source tree has not changed since the last successful sync.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS sync_source_snapshots (
+            sync_key TEXT PRIMARY KEY,
+            source_count INTEGER NOT NULL,
+            total_size INTEGER NOT NULL,
+            max_modified_ns INTEGER NOT NULL,
+            fingerprint TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )",
         [],
     )?;
 
@@ -466,6 +493,163 @@ fn save_record(conn: &Connection, range: &str, totals: &HistoryTotals) -> rusqli
 // ── Message syncing ─────────────────────────────────────────────────────
 // Parse all client log files, store every message in SQLite.
 // Dedup by message_key so repeated runs only add new messages.
+
+fn resolved_sync_clients(clients: Option<&Vec<String>>) -> Vec<String> {
+    clients.cloned().unwrap_or_else(|| {
+        let mut clients: Vec<String> = ClientId::iter()
+            .filter(|c| c.parse_local())
+            .map(|c| c.as_str().to_string())
+            .collect();
+        clients.push("synthetic".to_string());
+        clients
+    })
+}
+
+fn sync_snapshot_key(clients: Option<&Vec<String>>) -> String {
+    let mut clients = resolved_sync_clients(clients);
+    clients.sort();
+    clients.dedup();
+    format!("clients:{}", clients.join(","))
+}
+
+fn modified_time_ns(metadata: &std::fs::Metadata) -> i64 {
+    metadata
+        .modified()
+        .ok()
+        .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos().min(i64::MAX as u128) as i64)
+        .unwrap_or(0)
+}
+
+fn add_source_path(paths: &mut Vec<PathBuf>, path: Option<PathBuf>) {
+    if let Some(path) = path {
+        paths.push(path);
+    }
+}
+
+fn source_snapshot_for_clients(
+    clients: Option<&Vec<String>>,
+) -> Result<SourceSnapshot, Box<dyn std::error::Error>> {
+    let home_dir = calctokens_core::get_home_dir_string(&None)
+        .map_err(|err| std::io::Error::new(std::io::ErrorKind::NotFound, err))?;
+    let clients = resolved_sync_clients(clients);
+    let scan_result = calctokens_core::scan_all_clients_with_scanner_settings(
+        &home_dir,
+        &clients,
+        true,
+        &Default::default(),
+    );
+
+    let mut paths: Vec<PathBuf> = scan_result
+        .all_files()
+        .into_iter()
+        .map(|(_, path)| path)
+        .collect();
+    paths.extend(scan_result.opencode_dbs);
+    add_source_path(&mut paths, scan_result.synthetic_db);
+    add_source_path(&mut paths, scan_result.kilo_db);
+    add_source_path(&mut paths, scan_result.hermes_db);
+    add_source_path(&mut paths, scan_result.goose_db);
+    add_source_path(&mut paths, scan_result.zed_db);
+    add_source_path(&mut paths, scan_result.kiro_db);
+    add_source_path(&mut paths, scan_result.mimocode_db);
+    paths.extend(
+        scan_result
+            .crush_dbs
+            .into_iter()
+            .map(|source| source.db_path),
+    );
+    add_source_path(&mut paths, scan_result.opencode_json_dir);
+
+    paths.sort_by(|a, b| a.to_string_lossy().cmp(&b.to_string_lossy()));
+    paths.dedup();
+
+    let mut hasher = Sha256::new();
+    let mut source_count = 0_i64;
+    let mut total_size = 0_i64;
+    let mut max_modified_ns = 0_i64;
+
+    for path in paths {
+        let Ok(metadata) = std::fs::metadata(&path) else {
+            continue;
+        };
+        let modified_ns = modified_time_ns(&metadata);
+        let size = metadata.len().min(i64::MAX as u64) as i64;
+        let path_text = path.to_string_lossy();
+
+        source_count += 1;
+        total_size = total_size.saturating_add(size);
+        max_modified_ns = max_modified_ns.max(modified_ns);
+
+        hasher.update(path_text.as_bytes());
+        hasher.update([0]);
+        hasher.update(size.to_le_bytes());
+        hasher.update(modified_ns.to_le_bytes());
+    }
+
+    Ok(SourceSnapshot {
+        source_count,
+        total_size,
+        max_modified_ns,
+        fingerprint: format!("{:x}", hasher.finalize()),
+    })
+}
+
+fn load_source_snapshot(conn: &Connection, key: &str) -> rusqlite::Result<Option<SourceSnapshot>> {
+    let mut stmt = conn.prepare(
+        "SELECT source_count, total_size, max_modified_ns, fingerprint
+         FROM sync_source_snapshots WHERE sync_key = ?1",
+    )?;
+    let mut rows = stmt.query(params![key])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(SourceSnapshot {
+            source_count: row.get(0)?,
+            total_size: row.get(1)?,
+            max_modified_ns: row.get(2)?,
+            fingerprint: row.get(3)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+fn save_source_snapshot(
+    conn: &Connection,
+    key: &str,
+    snapshot: &SourceSnapshot,
+) -> rusqlite::Result<()> {
+    let updated_at = Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string();
+    conn.execute(
+        "INSERT INTO sync_source_snapshots
+         (sync_key, source_count, total_size, max_modified_ns, fingerprint, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(sync_key) DO UPDATE SET
+            source_count = excluded.source_count,
+            total_size = excluded.total_size,
+            max_modified_ns = excluded.max_modified_ns,
+            fingerprint = excluded.fingerprint,
+            updated_at = excluded.updated_at",
+        params![
+            key,
+            snapshot.source_count,
+            snapshot.total_size,
+            snapshot.max_modified_ns,
+            snapshot.fingerprint,
+            updated_at
+        ],
+    )?;
+    Ok(())
+}
+
+fn source_snapshot_changed(
+    conn: &Connection,
+    clients: Option<&Vec<String>>,
+) -> Result<(String, SourceSnapshot, bool), Box<dyn std::error::Error>> {
+    let key = sync_snapshot_key(clients);
+    let current = source_snapshot_for_clients(clients)?;
+    let previous = load_source_snapshot(conn, &key)?;
+    Ok((key, current.clone(), previous.as_ref() != Some(&current)))
+}
 
 fn sync_messages(
     conn: &Connection,
@@ -1104,10 +1288,10 @@ fn cache_total(cache_read: i64, cache_write: i64) -> i64 {
     cache_read + cache_write
 }
 
-fn cache_hit_rate(cache_read: i64, cache_write: i64) -> f64 {
-    let total = cache_total(cache_read, cache_write);
+fn cache_pct(input: i64, output: i64, cache_read: i64, cache_write: i64) -> f64 {
+    let total = input + output + cache_read + cache_write;
     if total > 0 {
-        cache_read as f64 / total as f64 * 100.0
+        cache_total(cache_read, cache_write) as f64 / total as f64 * 100.0
     } else {
         0.0
     }
@@ -1165,8 +1349,8 @@ fn print_models_view(
                 total_out - ds.output,
                 total_cache_read - ds.cache_read,
                 total_cache_write - ds.cache_write,
-                cache_hit_rate(total_cache_read, total_cache_write)
-                    - cache_hit_rate(ds.cache_read, ds.cache_write),
+                cache_pct(total_in, total_out, total_cache_read, total_cache_write)
+                    - cache_pct(ds.input, ds.output, ds.cache_read, ds.cache_write),
                 total_rmb - (ds.cost * exchange),
             )
         } else {
@@ -1186,7 +1370,12 @@ fn print_models_view(
                 fmt_num(total_in as f64),
                 fmt_num(total_out as f64),
                 fmt_num(cache_total(total_cache_read, total_cache_write) as f64),
-                fmt_pct(cache_hit_rate(total_cache_read, total_cache_write)),
+                fmt_pct(cache_pct(
+                    total_in,
+                    total_out,
+                    total_cache_read,
+                    total_cache_write,
+                )),
                 fmt_num((total_in + total_out + total_cache_write + total_cache_read) as f64),
                 format!("¥{:.2}", total_rmb),
             ],
@@ -1201,7 +1390,12 @@ fn print_models_view(
                 fmt_num(total_in as f64),
                 fmt_num(total_out as f64),
                 fmt_num(cache_total(total_cache_read, total_cache_write) as f64),
-                fmt_pct(cache_hit_rate(total_cache_read, total_cache_write)),
+                fmt_pct(cache_pct(
+                    total_in,
+                    total_out,
+                    total_cache_read,
+                    total_cache_write,
+                )),
                 fmt_num((total_in + total_out + total_cache_write + total_cache_read) as f64),
                 format!("¥{:.2}", total_rmb),
             ],
@@ -1274,7 +1468,12 @@ fn print_models_view(
             &fmt_num(inp),
             &fmt_num(out),
             &fmt_num(cw + cr),
-            &fmt_pct(cache_hit_rate(entry.cache_read, entry.cache_write)),
+            &fmt_pct(cache_pct(
+                entry.input,
+                entry.output,
+                entry.cache_read,
+                entry.cache_write,
+            )),
             &fmt_num(total),
             &share_str,
         ]);
@@ -1379,7 +1578,12 @@ fn print_monthly_view(report: &MonthlyReport, exchange: f64) {
             &fmt_num(inp),
             &fmt_num(out),
             &fmt_num(cw + cr),
-            &fmt_pct(cache_hit_rate(entry.cache_read, entry.cache_write)),
+            &fmt_pct(cache_pct(
+                entry.input,
+                entry.output,
+                entry.cache_read,
+                entry.cache_write,
+            )),
             &fmt_num(inp + out + cw + cr),
             &format!("¥{:.2}", entry.cost * exchange),
             &entry.message_count.to_string(),
@@ -1586,6 +1790,7 @@ fn do_upgrade(conn: &Connection, rt: &Runtime) -> Result<(), Box<dyn std::error:
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = Args::parse();
+    let mut sync_only = false;
 
     if let Some(ref cmd) = args.command {
         match cmd.as_str() {
@@ -1596,11 +1801,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "hourly" => args.hourly = true,
             "clients" => args.clients = true,
             "upgrade" => args.upgrade = true,
+            "sync" => {
+                args.sync = true;
+                sync_only = true;
+            }
             _ => {
                 eprintln!("Error: Unknown command or argument '{}'", cmd);
                 std::process::exit(1);
             }
         }
+    }
+
+    if args.sync && args.no_sync {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "--sync and --no-sync cannot be used together",
+        )
+        .into());
     }
 
     if let Err(e) = validate_client_filters(&args.client) {
@@ -1695,14 +1912,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(args.client.clone())
     };
     let sync_stats = if args.no_sync {
-        SyncStats::default() // Skip sync entirely for read-only historical queries
+        SyncStats::default()
     } else {
-        match sync_messages(&conn, &rt, sync_clients.clone()) {
-            Ok(stats) => stats,
-            Err(e) => {
-                eprintln!("Warning: message sync failed (data may be stale): {}", e);
-                SyncStats::default()
+        let mut snapshot_to_save = None;
+        let should_sync = if args.sync || daily_summary_is_empty(&conn).unwrap_or(true) {
+            true
+        } else {
+            match source_snapshot_changed(&conn, sync_clients.as_ref()) {
+                Ok((key, snapshot, changed)) => {
+                    if changed {
+                        snapshot_to_save = Some((key, snapshot));
+                    }
+                    changed
+                }
+                Err(e) => {
+                    eprintln!("Warning: source snapshot check failed: {}", e);
+                    true
+                }
             }
+        };
+
+        if should_sync {
+            match sync_messages(&conn, &rt, sync_clients.clone()) {
+                Ok(stats) => {
+                    match source_snapshot_changed(&conn, sync_clients.as_ref()) {
+                        Ok((key, snapshot, _)) => snapshot_to_save = Some((key, snapshot)),
+                        Err(e) => eprintln!("Warning: source snapshot save skipped: {}", e),
+                    }
+                    if let Some((key, snapshot)) = snapshot_to_save {
+                        if let Err(e) = save_source_snapshot(&conn, &key, &snapshot) {
+                            eprintln!("Warning: source snapshot save failed: {}", e);
+                        }
+                    }
+                    stats
+                }
+                Err(e) => {
+                    eprintln!("Warning: message sync failed (data may be stale): {}", e);
+                    SyncStats::default()
+                }
+            }
+        } else {
+            SyncStats::default()
         }
     };
     if !args.no_sync {
@@ -1713,6 +1963,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("Warning: daily_summary refresh failed: {}", e);
             }
         }
+    }
+    if sync_only {
+        println!(
+            "Synced local messages: {} changed row(s).",
+            sync_stats.changed
+        );
+        let _ = conn.execute("PRAGMA optimize;", []);
+        return Ok(());
     }
 
     // ── monthly view ───────────────────────────────────────────────
@@ -2025,6 +2283,13 @@ mod tests {
     }
 
     #[test]
+    fn cache_pct_uses_cache_tokens_over_total_tokens() {
+        assert_eq!(cache_pct(100, 50, 25, 25), 25.0);
+        assert_eq!(cache_pct(100, 50, 50, 0), 25.0);
+        assert_eq!(cache_pct(0, 0, 0, 0), 0.0);
+    }
+
+    #[test]
     fn init_db_succeeds_on_fresh_database() {
         let conn = Connection::open_in_memory().unwrap();
 
@@ -2038,6 +2303,53 @@ mod tests {
             )
             .unwrap();
         assert_eq!(table_count, 1);
+    }
+
+    #[test]
+    fn init_db_creates_sync_source_snapshots() {
+        let conn = Connection::open_in_memory().unwrap();
+
+        init_db(&conn).unwrap();
+
+        let table_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name = 'sync_source_snapshots'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(table_count, 1);
+    }
+
+    #[test]
+    fn sync_snapshot_key_is_order_independent() {
+        let first = vec!["codex".to_string(), "claude".to_string()];
+        let second = vec!["claude".to_string(), "codex".to_string()];
+
+        assert_eq!(
+            sync_snapshot_key(Some(&first)),
+            sync_snapshot_key(Some(&second))
+        );
+    }
+
+    #[test]
+    fn save_and_load_source_snapshot_round_trips() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+        let snapshot = SourceSnapshot {
+            source_count: 2,
+            total_size: 128,
+            max_modified_ns: 42,
+            fingerprint: "abc123".to_string(),
+        };
+
+        save_source_snapshot(&conn, "clients:codex", &snapshot).unwrap();
+
+        assert_eq!(
+            load_source_snapshot(&conn, "clients:codex").unwrap(),
+            Some(snapshot)
+        );
     }
 
     #[test]

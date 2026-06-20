@@ -151,7 +151,7 @@ impl CodexTotals {
     }
 }
 
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CodexParseState {
     pub current_model: Option<String>,
     pub previous_totals: Option<CodexTotals>,

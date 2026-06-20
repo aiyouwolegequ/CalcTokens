@@ -70,7 +70,8 @@ calctokens upgrade             # sync OpenRouter metadata + exchange rates (alia
 calctokens --pricing MODEL_ID  # model pricing lookup (CNY)
 calctokens --version           # print version
 calctokens -c claude           # filter by client
-calctokens -c kimi month       # filter by client + time range (can combine with positional cmd)
+calctokens month -c kimi       # filter by client + time range
+calctokens sync --client kimi  # sync one client, then exit
 calctokens --sync all          # force sync before all-time report
 calctokens --no-sync all       # read SQLite only, fastest historical report
 calctokens --since 2026-01-01  # filter by start date

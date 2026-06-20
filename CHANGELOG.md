@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-06-20
+
 ### Added
 - **Explicit Sync Modes**: Added `--sync` to force a sync before any report, and `calctokens sync` to refresh the local SQLite database without printing a report.
 

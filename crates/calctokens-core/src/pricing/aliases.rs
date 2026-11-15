@@ -1,8 +1,95 @@
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 
+// Use exact catalog entries for these models. Some client variants may have no
+// OpenRouter listing, and variants such as batch and highspeed can differ in price.
+const OPENROUTER_MODEL_NAMES: &[(&str, &str)] = &[
+    ("openai/gpt-5.6-sol", "GPT-5.6-Sol"),
+    ("openai/gpt-5.6-terra", "GPT-5.6-Terra"),
+    ("openai/gpt-5.6-luna", "GPT-5.6-Luna"),
+    ("openai/gpt-6-astra", "GPT-6-Astra"),
+    ("openai/gpt-6-sol", "GPT-6-Sol"),
+    ("openai/gpt-6-luna", "GPT-6-Luna"),
+    ("openai/gpt-6.1-sol", "GPT-6.1-Sol"),
+    ("openai/gpt-6.1-terra", "GPT-6.1-Terra"),
+    ("anthropic/claude-fable-5.1", "Claude-Fable-5.1"),
+    ("anthropic/claude-fable-5.2", "Claude-Fable-5.2"),
+    ("anthropic/claude-mythos-5.2", "Claude-Mythos-5.2"),
+    ("anthropic/claude-opus-5", "Claude-Opus-5"),
+    ("anthropic/claude-opus-5.5", "Claude-Opus-5.5"),
+    ("anthropic/claude-sonnet-5", "Claude-Sonnet-5"),
+    ("anthropic/claude-sonnet-5.5", "Claude-Sonnet-5.5"),
+    ("anthropic/claude-haiku-5.5", "Claude-Haiku-5.5"),
+    ("google/gemini-3.6-flash", "Gemini-3.6-Flash"),
+    ("google/gemini-3.7-flash", "Gemini-3.7-Flash"),
+    ("google/gemini-3.8-flash", "Gemini-3.8-Flash"),
+    ("google/gemini-4-argon", "Gemini-4-Argon"),
+    ("google/gemini-4-carbon", "Gemini-4-Carbon"),
+    ("google/gemini-4-hydrogen", "Gemini-4-Hydrogen"),
+    (
+        "moonshotai/kimi-k2.7-code-highspeed",
+        "Kimi-K2.7-Code-Highspeed",
+    ),
+    ("moonshotai/kimi-k2.8-preview", "Kimi-K2.8-Preview"),
+    ("moonshotai/kimi-k3", "Kimi-K3"),
+    ("moonshotai/kimi-k3-256k", "Kimi-K3-256K"),
+    ("moonshotai/kimi-k3.1-pro", "Kimi-K3.1-Pro"),
+    (
+        "moonshotai/kimi-k3.1-pro-highspeed",
+        "Kimi-K3.1-Pro-Highspeed",
+    ),
+];
+
 static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     let mut m = HashMap::new();
+    for &(key, _) in OPENROUTER_MODEL_NAMES {
+        let (_, model_id) = key.split_once('/').unwrap();
+        m.insert(key, model_id);
+        m.insert(model_id, model_id);
+    }
+    m.extend([
+        ("claude-fable-5-1", "claude-fable-5.1"),
+        ("claude-fable-5-2", "claude-fable-5.2"),
+        ("claude-mythos-5-2", "claude-mythos-5.2"),
+        ("claude-opus-5-5", "claude-opus-5.5"),
+        ("claude-opus-5-5-thinking", "claude-opus-5.5"),
+        ("claude-opus-5.5-thinking", "claude-opus-5.5"),
+        ("claude-sonnet-5-5", "claude-sonnet-5.5"),
+        ("claude-sonnet-5-5-thinking", "claude-sonnet-5.5"),
+        ("claude-sonnet-5.5-thinking", "claude-sonnet-5.5"),
+        ("claude-haiku-5-5", "claude-haiku-5.5"),
+        ("gemini-3.6-flash-high", "gemini-3.6-flash"),
+        ("gemini-3.6-flash-medium", "gemini-3.6-flash"),
+        ("gemini-3.7-flash-high", "gemini-3.7-flash"),
+        ("gemini-3.7-flash-medium", "gemini-3.7-flash"),
+        ("model_placeholder_m298", "gemini-3.7-flash"),
+        ("gemini-3.8-flash-high", "gemini-3.8-flash"),
+        ("gemini-3.8-flash-medium", "gemini-3.8-flash"),
+        ("gemini-3.8-flash-n", "gemini-3.8-flash"),
+        ("model_placeholder_m318", "gemini-3.8-flash"),
+        ("gemini-4-argon-high", "gemini-4-argon"),
+        ("gemini-4-argon-medium", "gemini-4-argon"),
+        ("gemini-4-carbon-high", "gemini-4-carbon"),
+        ("gemini-4-carbon-medium", "gemini-4-carbon"),
+        ("gemini-4-carbon-low", "gemini-4-carbon"),
+        ("gemini-4-hydrogen-xhigh", "gemini-4-hydrogen"),
+        ("gemini-4-hydrogen-high", "gemini-4-hydrogen"),
+        ("gemini-4-hydrogen-medium", "gemini-4-hydrogen"),
+        ("gemini-4-hydrogen-low", "gemini-4-hydrogen"),
+        ("k3", "kimi-k3"),
+        ("kimi-code/k3", "kimi-k3"),
+        ("k3-256k", "kimi-k3-256k"),
+        ("kimi-code/k3-256k", "kimi-k3-256k"),
+        ("k3.1-pro", "kimi-k3.1-pro"),
+        ("kimi-code/k3.1-pro", "kimi-k3.1-pro"),
+        ("k3.1-pro-highspeed", "kimi-k3.1-pro-highspeed"),
+        ("kimi-code/k3.1-pro-highspeed", "kimi-k3.1-pro-highspeed"),
+        ("kimi-for-coding-highspeed", "kimi-k2.7-code-highspeed"),
+        (
+            "kimi-code/kimi-for-coding-highspeed",
+            "kimi-k2.7-code-highspeed",
+        ),
+    ]);
     m.insert("mimo-auto", "mimo-auto");
     m.insert("mimo/mimo-auto", "mimo-auto");
     m.insert("big-pickle", "glm-4.7");
@@ -163,6 +250,9 @@ static MODEL_ALIASES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
 
 static PRETTY_NAMES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     let mut m = HashMap::new();
+    for &(key, name) in OPENROUTER_MODEL_NAMES {
+        m.insert(key.split_once('/').unwrap().1, name);
+    }
     m.insert("mimo-auto", "MiMo-Auto");
     m.insert("mimo/mimo-auto", "MiMo-Auto");
     m.insert("gemini-3-flash-preview", "Gemini-3.1-Flash");
@@ -296,6 +386,13 @@ pub fn resolve_alias(model_id: &str) -> Option<&'static str> {
 
 pub fn resolve_pretty_name(model_id: &str) -> Option<&'static str> {
     PRETTY_NAMES.get(model_id.to_lowercase().as_str()).copied()
+}
+
+pub(super) fn exact_openrouter_key(model_id: &str) -> Option<&'static str> {
+    OPENROUTER_MODEL_NAMES
+        .iter()
+        .map(|&(key, _)| key)
+        .find(|key| key.split_once('/').unwrap().1 == model_id)
 }
 
 #[cfg(test)]

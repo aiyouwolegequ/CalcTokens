@@ -61,6 +61,7 @@ pub struct CodexTokenUsage {
     pub output_tokens: Option<i64>,
     pub cached_input_tokens: Option<i64>,
     pub cache_read_input_tokens: Option<i64>,
+    pub cache_write_input_tokens: Option<i64>,
     pub reasoning_output_tokens: Option<i64>,
     pub total_tokens: Option<i64>,
 }
@@ -70,6 +71,8 @@ pub(crate) struct CodexTotals {
     input: i64,
     output: i64,
     cached: i64,
+    #[serde(default)]
+    cache_write: i64,
     reasoning: i64,
 }
 
@@ -83,6 +86,7 @@ impl CodexTotals {
                 .unwrap_or(0)
                 .max(usage.cache_read_input_tokens.unwrap_or(0))
                 .max(0),
+            cache_write: usage.cache_write_input_tokens.unwrap_or(0).max(0),
             reasoning: usage.reasoning_output_tokens.unwrap_or(0).max(0),
         }
     }
@@ -91,6 +95,7 @@ impl CodexTotals {
         if self.input < previous.input
             || self.output < previous.output
             || self.cached < previous.cached
+            || self.cache_write < previous.cache_write
             || self.reasoning < previous.reasoning
         {
             return None;
@@ -100,6 +105,7 @@ impl CodexTotals {
             input: self.input - previous.input,
             output: self.output - previous.output,
             cached: self.cached - previous.cached,
+            cache_write: self.cache_write - previous.cache_write,
             reasoning: self.reasoning - previous.reasoning,
         })
     }
@@ -109,6 +115,7 @@ impl CodexTotals {
             input: self.input.saturating_add(other.input),
             output: self.output.saturating_add(other.output),
             cached: self.cached.saturating_add(other.cached),
+            cache_write: self.cache_write.saturating_add(other.cache_write),
             reasoning: self.reasoning.saturating_add(other.reasoning),
         }
     }
@@ -138,14 +145,15 @@ impl CodexTotals {
     }
 
     fn into_tokens(self) -> TokenBreakdown {
-        // Clamp cached to not exceed input to prevent inflated totals when
-        // malformed data reports more cached tokens than input tokens.
-        let clamped_cached = self.cached.min(self.input).max(0);
+        // Cache reads and writes are disjoint subsets of input tokens.
+        let input = self.input.max(0);
+        let cache_read = self.cached.clamp(0, input);
+        let cache_write = self.cache_write.clamp(0, input - cache_read);
         TokenBreakdown {
-            input: (self.input - clamped_cached).max(0),
+            input: input - cache_read - cache_write,
             output: self.output.max(0),
-            cache_read: clamped_cached,
-            cache_write: 0,
+            cache_read,
+            cache_write,
             reasoning: self.reasoning.max(0),
         }
     }
@@ -427,6 +435,7 @@ fn parse_codex_reader<R: BufRead>(
                     if tokens.input == 0
                         && tokens.output == 0
                         && tokens.cache_read == 0
+                        && tokens.cache_write == 0
                         && tokens.reasoning == 0
                     {
                         continue;
@@ -566,15 +575,15 @@ fn codex_source_is_exec(source: Option<&Value>) -> bool {
 }
 
 fn codex_token_count_dedup_key(message: &UnifiedMessage, model: &str) -> String {
+    // Keep the pre-cache-write key so resync updates existing database rows.
     format!(
-        "codex:token_count:{}:{}:{}:{}:{}:{}:{}:{}",
+        "codex:token_count:{}:{}:{}:{}:{}:{}:0:{}",
         message.timestamp,
         message.provider_id,
         model,
-        message.tokens.input,
+        message.tokens.input + message.tokens.cache_write,
         message.tokens.output,
         message.tokens.cache_read,
-        message.tokens.cache_write,
         message.tokens.reasoning
     )
 }
@@ -755,9 +764,7 @@ fn extract_model_from_info(info: &CodexInfo) -> Option<String> {
 }
 
 struct CodexHeadlessUsage {
-    input: i64,
-    output: i64,
-    cached: i64,
+    tokens: TokenBreakdown,
     model: Option<String>,
     timestamp_ms: Option<i64>,
 }
@@ -785,7 +792,7 @@ fn parse_codex_headless_line(
         .unwrap_or_else(|| "unknown".to_string());
     let timestamp = usage.timestamp_ms.unwrap_or(fallback_timestamp);
 
-    if usage.input == 0 && usage.output == 0 && usage.cached == 0 {
+    if usage.tokens == TokenBreakdown::default() {
         return None;
     }
 
@@ -803,13 +810,7 @@ fn parse_codex_headless_line(
             provider,
             session_id.to_string(),
             timestamp,
-            TokenBreakdown {
-                input: usage.input.max(0),
-                output: usage.output.max(0),
-                cache_read: usage.cached.max(0),
-                cache_write: 0,
-                reasoning: 0,
-            },
+            usage.tokens,
             0.0,
             agent,
         ),
@@ -851,9 +852,14 @@ fn extract_headless_usage(value: &Value) -> Option<CodexHeadlessUsage> {
     let timestamp_ms = extract_timestamp_from_value(value);
 
     Some(CodexHeadlessUsage {
-        input: input_tokens.saturating_sub(cached_tokens),
-        output: output_tokens,
-        cached: cached_tokens,
+        tokens: CodexTotals {
+            input: input_tokens,
+            output: output_tokens,
+            cached: cached_tokens,
+            cache_write: extract_i64(usage.get("cache_write_input_tokens")).unwrap_or(0),
+            reasoning: extract_i64(usage.get("reasoning_output_tokens")).unwrap_or(0),
+        }
+        .into_tokens(),
         model,
         timestamp_ms,
     })
@@ -952,6 +958,47 @@ mod tests {
         assert_eq!(messages[0].tokens.input, 100);
         assert_eq!(messages[0].tokens.output, 30);
         assert_eq!(messages[0].tokens.cache_read, 20);
+    }
+
+    #[test]
+    fn test_headless_usage_includes_cache_writes() {
+        let content = r#"{"type":"turn.completed","model":"gpt-6.1-sol","usage":{"input_tokens":120,"cached_input_tokens":20,"cache_write_input_tokens":70,"output_tokens":30,"reasoning_output_tokens":10}}"#;
+        let file = create_test_file(content);
+
+        let messages = parse_codex_file(file.path());
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(
+            messages[0].tokens,
+            TokenBreakdown {
+                input: 30,
+                output: 30,
+                cache_read: 20,
+                cache_write: 70,
+                reasoning: 10,
+            }
+        );
+    }
+
+    #[test]
+    fn test_rollout_cache_writes_keep_the_legacy_dedup_key() {
+        let content = r#"{"type":"turn_context","payload":{"model":"gpt-6.1-sol"}}
+{"timestamp":"2026-11-15T00:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":20,"cache_write_input_tokens":60,"output_tokens":30,"reasoning_output_tokens":10},"last_token_usage":{"input_tokens":100,"cached_input_tokens":20,"cache_write_input_tokens":60,"output_tokens":30,"reasoning_output_tokens":10}}}}
+{"timestamp":"2026-11-15T00:01:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":150,"cached_input_tokens":30,"cache_write_input_tokens":85,"output_tokens":40,"reasoning_output_tokens":12}}}}"#;
+        let file = create_test_file(content);
+
+        let messages = parse_codex_file(file.path());
+
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].tokens.input, 20);
+        assert_eq!(messages[0].tokens.cache_write, 60);
+        assert_eq!(
+            messages[0].dedup_key.as_deref(),
+            Some("codex:token_count:1794700800000:openai:gpt-6.1-sol:80:30:20:0:10")
+        );
+        assert_eq!(messages[1].tokens.input, 15);
+        assert_eq!(messages[1].tokens.cache_read, 10);
+        assert_eq!(messages[1].tokens.cache_write, 25);
     }
 
     #[test]
@@ -1304,10 +1351,12 @@ mod tests {
             input: 50,
             output: 30,
             cached: 100, // More than input — malformed
+            cache_write: 20,
             reasoning: 5,
         };
         let tokens = totals.into_tokens();
         assert_eq!(tokens.cache_read, 50); // Clamped to input
+        assert_eq!(tokens.cache_write, 0);
         assert_eq!(tokens.input, 0); // input - clamped_cached = 0
         assert_eq!(tokens.output, 30);
         assert_eq!(tokens.reasoning, 5);
@@ -1689,6 +1738,7 @@ mod tests {
             output_tokens: Some(30),
             cached_input_tokens: Some(10),
             cache_read_input_tokens: Some(20),
+            cache_write_input_tokens: None,
             reasoning_output_tokens: Some(5),
             total_tokens: None,
         };

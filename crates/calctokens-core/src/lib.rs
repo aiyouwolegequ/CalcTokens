@@ -1679,10 +1679,15 @@ fn apply_pricing_if_available(
         return;
     };
 
+    let mut tokens = message.tokens.clone();
+    if message.client == "codex" {
+        // Codex reports reasoning as a subset of output tokens.
+        tokens.reasoning = 0;
+    }
     let calculated_cost = pricing.calculate_cost_with_provider(
         &message.model_id,
         Some(&message.provider_id),
-        &message.tokens,
+        &tokens,
     ) * pricing_multiplier(message);
 
     if calculated_cost > 0.0 {
@@ -4504,6 +4509,40 @@ mod tests {
         apply_pricing_if_available(&mut msg, Some(&pricing));
 
         assert_eq!(msg.cost, 0.05);
+    }
+
+    #[test]
+    fn test_codex_pricing_counts_cache_writes_and_output_once() {
+        let pricing = pricing::PricingService::new(HashMap::from([(
+            "openai/gpt-6.1-sol".into(),
+            pricing::ModelPricing {
+                input_cost_per_token: Some(0.000_002),
+                output_cost_per_token: Some(0.000_01),
+                cache_read_input_token_cost: Some(0.000_000_1),
+                cache_creation_input_token_cost: Some(0.000_002_5),
+                ..Default::default()
+            },
+        )]));
+        let mut message = UnifiedMessage::new(
+            "codex",
+            "gpt-6.1-sol",
+            "openai",
+            "session-1",
+            1_733_011_200_000,
+            TokenBreakdown {
+                input: 10,
+                output: 20,
+                cache_read: 30,
+                cache_write: 40,
+                reasoning: 5,
+            },
+            0.0,
+        );
+
+        apply_pricing_if_available(&mut message, Some(&pricing));
+
+        assert!((message.cost - 0.000323).abs() < 1e-12);
+        assert_eq!(message.tokens.reasoning, 5);
     }
 
     #[test]

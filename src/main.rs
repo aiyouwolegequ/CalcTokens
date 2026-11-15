@@ -18,6 +18,8 @@ mod antigravity;
 const EXCH_API: &str = "https://api.exchangerate-api.com/v4/latest/USD";
 const MIN_CNY_RATE: f64 = 0.01;
 const MAX_CNY_RATE: f64 = 100.0;
+// Invalidate snapshots created before the parser changes in this version.
+const SYNC_SNAPSHOT_VERSION: &[u8] = b"2";
 fn db_path() -> String {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
@@ -320,7 +322,7 @@ fn init_db(conn: &Connection) -> rusqlite::Result<()> {
                  AND old.cache_write = new.cache_write
              WHERE old.client = 'kimi'
                  AND old.model_id IN ('kimi-code/kimi-for-coding', 'kimi-for-coding')
-                 AND new.model_id IN ('kimi-k2.5', 'kimi-k2.6', 'kimi-k2.7-code')
+                 AND new.model_id IN ('kimi-k2.5', 'kimi-k2.6', 'kimi-k2.7-code', 'kimi-k2.8-preview')
                  AND old.timestamp >= ?1
          )",
         params![KIMI_K25_RELEASE_MS],
@@ -565,6 +567,7 @@ fn source_snapshot_for_clients(
     paths.dedup();
 
     let mut hasher = Sha256::new();
+    hasher.update(SYNC_SNAPSHOT_VERSION);
     let mut source_count = 0_i64;
     let mut total_size = 0_i64;
     let mut max_modified_ns = 0_i64;
@@ -739,13 +742,19 @@ fn sync_messages(
         let mut changed = 0usize;
         for msg in &messages {
             let key = msg.dedup_key.clone().unwrap_or_else(|| {
+                // Codex cache writes were previously included in ordinary input.
+                let input = if msg.client == "codex" {
+                    msg.tokens.input + msg.tokens.cache_write
+                } else {
+                    msg.tokens.input
+                };
                 format!(
                     "{}:{}:{}:{}:{}:{}",
                     msg.client,
                     msg.session_id,
                     msg.timestamp,
                     msg.model_id,
-                    msg.tokens.input,
+                    input,
                     msg.tokens.output
                 )
             });

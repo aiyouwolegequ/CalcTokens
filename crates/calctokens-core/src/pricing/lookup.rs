@@ -260,6 +260,14 @@ impl PricingLookup {
 
         let lower_ref: &str = normalized_owned.as_deref().unwrap_or(&lower);
 
+        let exact_model = aliases::resolve_alias(lower_ref).unwrap_or(lower_ref);
+        if let Some(key) = aliases::exact_openrouter_key(exact_model) {
+            return match force_source {
+                Some("litellm") => None,
+                _ => self.exact_match_openrouter(key),
+            };
+        }
+
         // Helper to perform lookup with the given source constraint
         let do_lookup = |id: &str| match force_source {
             Some("litellm") => self.lookup_litellm_only(id, provider_id),
@@ -1466,6 +1474,43 @@ fn exact_match_with_provider_prefixes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn current_client_model_ids_use_their_exact_openrouter_entry() {
+        let cases = [
+            ("gpt-6.1-sol", "openai/gpt-6.1-sol"),
+            ("claude-fable-5-2", "anthropic/claude-fable-5.2"),
+            ("claude-sonnet-5-5-thinking", "anthropic/claude-sonnet-5.5"),
+            ("gemini-4-hydrogen-xhigh", "google/gemini-4-hydrogen"),
+            ("gemini-3.8-flash-n", "google/gemini-3.8-flash"),
+            ("MODEL_PLACEHOLDER_M318", "google/gemini-3.8-flash"),
+            ("kimi-code/k3.1-pro", "moonshotai/kimi-k3.1-pro"),
+        ];
+        let openrouter = cases
+            .iter()
+            .map(|(_, key)| (key.to_string(), ModelPricing::default()))
+            .collect();
+        let lookup = PricingLookup::new(HashMap::new(), openrouter, HashMap::new());
+
+        for (model, key) in cases {
+            assert_eq!(lookup.lookup(model).unwrap().matched_key, key);
+        }
+    }
+
+    #[test]
+    fn missing_current_model_prices_do_not_fall_back_to_different_variants() {
+        let openrouter = HashMap::from([
+            ("openai/gpt-5".into(), ModelPricing::default()),
+            ("openai/gpt-6.1-sol:batch".into(), ModelPricing::default()),
+            ("moonshotai/kimi-k3.1-pro".into(), ModelPricing::default()),
+            ("moonshotai/kimi-k2.7-code".into(), ModelPricing::default()),
+        ]);
+        let lookup = PricingLookup::new(HashMap::new(), openrouter, HashMap::new());
+
+        assert!(lookup.lookup("gpt-6.1-sol").is_none());
+        assert!(lookup.lookup("kimi-code/k3.1-pro-highspeed").is_none());
+        assert!(lookup.lookup("kimi-k2.8-preview").is_none());
+    }
 
     /// Mock LiteLLM data matching real API responses for OpenCode Zen models
     fn mock_litellm() -> HashMap<String, ModelPricing> {

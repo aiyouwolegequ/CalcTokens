@@ -64,13 +64,12 @@ struct TokenUsage {
 const DEFAULT_MODEL: &str = "kimi-for-coding";
 const DEFAULT_PROVIDER: &str = "moonshotai";
 
-// Kimi Code CLI only records the unified alias `kimi-code/kimi-for-coding` in
-// wire.jsonl. We split this alias into the actual model version based on the
-// known release/switch dates, so historical `kimi` client usage can be
-// attributed to K2.5 / K2.6 / K2.7-Code.
+// When wire.jsonl contains the rolling `kimi-for-coding` alias, use the
+// release dates to attribute usage to the model served at the time.
 const KIMI_K25_RELEASE_MS: i64 = 1769472000000; // 2026-01-27 00:00:00 UTC
 const KIMI_K26_RELEASE_MS: i64 = 1776038400000; // 2026-04-13 00:00:00 UTC
 const KIMI_K27_RELEASE_MS: i64 = 1781222400000; // 2026-06-12 00:00:00 UTC
+const KIMI_K28_ROLLOUT_MS: i64 = 1789084800000; // 2026-09-11 00:00:00 UTC
 
 fn resolve_kimi_code_model(model_id: &str, timestamp_ms: i64) -> String {
     if model_id != "kimi-code/kimi-for-coding" && model_id != "kimi-for-coding" {
@@ -83,8 +82,30 @@ fn resolve_kimi_code_model(model_id: &str, timestamp_ms: i64) -> String {
         "kimi-k2.5".to_string()
     } else if timestamp_ms < KIMI_K27_RELEASE_MS {
         "kimi-k2.6".to_string()
-    } else {
+    } else if timestamp_ms < KIMI_K28_ROLLOUT_MS {
         "kimi-k2.7-code".to_string()
+    } else {
+        "kimi-k2.8-preview".to_string()
+    }
+}
+
+fn legacy_k27_message_key(
+    raw_model: &str,
+    model: &str,
+    session_id: &str,
+    timestamp_ms: i64,
+    input: i64,
+    output: i64,
+) -> Option<String> {
+    if model == "kimi-k2.8-preview"
+        && matches!(raw_model, "kimi-code/kimi-for-coding" | "kimi-for-coding")
+    {
+        // Reuse the key from before the alias changed so a resync updates that row.
+        Some(format!(
+            "kimi:{session_id}:{timestamp_ms}:kimi-k2.7-code:{input}:{output}"
+        ))
+    } else {
+        None
     }
 }
 
@@ -203,10 +224,10 @@ pub fn parse_kimi_file(path: &Path) -> Vec<UnifiedMessage> {
                 .time
                 .map(|t| t as i64)
                 .unwrap_or_else(|| file_modified_timestamp_ms(path));
-            let model = resolve_kimi_code_model(
-                &wire_line.model.unwrap_or_else(|| model_from_config.clone()),
-                timestamp_ms,
-            );
+            let raw_model = wire_line.model.as_deref().unwrap_or(&model_from_config);
+            let model = resolve_kimi_code_model(raw_model, timestamp_ms);
+            let dedup_key =
+                legacy_k27_message_key(raw_model, &model, &session_id, timestamp_ms, input, output);
 
             messages.push(UnifiedMessage::new_with_dedup(
                 "kimi",
@@ -222,7 +243,7 @@ pub fn parse_kimi_file(path: &Path) -> Vec<UnifiedMessage> {
                     reasoning: 0,
                 },
                 0.0,
-                None,
+                dedup_key,
             ));
             continue;
         }
@@ -268,8 +289,17 @@ pub fn parse_kimi_file(path: &Path) -> Vec<UnifiedMessage> {
             continue;
         }
 
-        let dedup_key = payload.message_id;
         let model = resolve_kimi_code_model(&model_from_config, timestamp_ms);
+        let dedup_key = payload.message_id.or_else(|| {
+            legacy_k27_message_key(
+                &model_from_config,
+                &model,
+                &session_id,
+                timestamp_ms,
+                input,
+                output,
+            )
+        });
 
         messages.push(UnifiedMessage::new_with_dedup(
             "kimi",
@@ -408,6 +438,26 @@ mod tests {
         assert_eq!(messages[1].model_id, "kimi-k2.6");
         assert_eq!(messages[2].model_id, "kimi-k2.7-code");
         assert_eq!(messages[3].model_id, "kimi-k2.7-code");
+    }
+
+    #[test]
+    fn test_kimi_k28_rollout_keeps_the_legacy_message_key() {
+        let content = r#"{"type":"usage.record","model":"kimi-code/kimi-for-coding","usage":{"inputOther":100,"output":10},"usageScope":"turn","time":1789084799999}
+{"type":"usage.record","model":"kimi-code/kimi-for-coding","usage":{"inputOther":100,"output":10},"usageScope":"turn","time":1789084800000}
+{"type":"usage.record","model":"kimi-code/k3.1-pro","usage":{"inputOther":100,"output":10},"usageScope":"turn","time":1793001600000}"#;
+        let file = create_test_file(content);
+
+        let messages = parse_kimi_file(file.path());
+
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0].model_id, "kimi-k2.7-code");
+        assert_eq!(messages[1].model_id, "kimi-k2.8-preview");
+        let legacy_key = format!(
+            "kimi:{}:1789084800000:kimi-k2.7-code:100:10",
+            messages[1].session_id
+        );
+        assert_eq!(messages[1].dedup_key.as_deref(), Some(legacy_key.as_str()));
+        assert_eq!(messages[2].model_id, "kimi-code/k3.1-pro");
     }
 
     #[test]

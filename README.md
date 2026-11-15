@@ -8,6 +8,7 @@ AI coding assistant token usage tracker with human-readable K/M/B/T units & real
 - **`calctokens --upgrade`**: sync OpenRouter model metadata + exchange rates to local DB
 - **OpenRouter-only pricing**: pricing lookup uses OpenRouter as the reference source while agent logs preserve raw model IDs
 - **Agent model provider inference**: detects third-party models used inside coding agents, including DeepSeek, MiniMax, and Kimi/Moonshot
+- **Current model IDs**: recognizes GPT-6, Claude 5, Gemini 4, Gemini 3.6–3.8 Flash, and Kimi K3 variants. Cost estimates for these models require a matching OpenRouter listing.
 - **Canonical ID layer**: raw `model_id` preserved for audit, `canonical_id` used for aggregation — historical data never rewritten
 - All messages stored permanently in `~/.calctokens.db` — independent of source log files
 - Pre-aggregated `daily_summary` for fast model/monthly reports

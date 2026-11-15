@@ -77,7 +77,7 @@ Recent history uses concise conventional-style messages such as `fix: add missin
    - If `brew audit --strict --online` reports a newly published GitHub Release asset as unreachable while `curl -I <asset-url>`, `brew upgrade calctokens`, and `brew test` all succeed, treat it as a transient online reachability false negative and record that fallback explicitly in the release notes.
 
 6. Update project documentation
-   - Update the Obsidian project doc at `/Users/felix/Library/Mobile Documents/iCloud~md~obsidian/Documents/Darchrow-Obsidian/Vibe_Coding/Project/CalcTokens.md` with the release notes. Follow the existing version-section format (date, added/fixed/changed subsections) and keep the document in sync with `CHANGELOG.md`.
+   - Update the Obsidian project doc at `/Users/felix/Library/Mobile Documents/iCloud~md~obsidian/Documents/Darchrow-Obsidian/Vibe/Project/CalcTokens.md` with the release notes. Follow the existing version-section format (date, added/fixed/changed subsections) and keep the document in sync with `CHANGELOG.md`.
    - For sync/reporting releases, include a short usage note covering `calctokens --sync <report>`, `calctokens sync`, default source snapshot detection, and `calctokens --no-sync <report>`.
    - If macOS privacy permissions block access to the iCloud/Obsidian path, do not skip the documentation step silently. Provide a paste-ready Markdown section in the final response so the user can update the note manually, and state the exact permission/path error encountered.
 

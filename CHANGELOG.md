@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-11-15
+
+### Added
+- Recognize current GPT-6, Claude 5, Gemini 4, Gemini 3.6–3.8 Flash, and Kimi K3 model IDs and their client aliases. Pricing matches the specific OpenRouter model when listed.
+
+### Fixed
+- Count cache writes from Codex rollout files and `codex exec --json` logs separately from ordinary input, and count reasoning output once in cost estimates.
+- Attribute `kimi-for-coding` usage from the September 11, 2026 rollout onward to Kimi K2.8 Preview. Resync updates existing records for this alias and Codex cache writes without duplicating usage.
+
+### Changed
+- Remove remote host upgrades from the release workflow and verify Homebrew on the local macOS host.
+
 ## [1.2.1] - 2026-06-20
 
 ### Added

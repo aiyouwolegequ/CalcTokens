@@ -76,23 +76,7 @@ Recent history uses concise conventional-style messages such as `fix: add missin
    - After the tap is pushed, run `brew update && brew upgrade calctokens`, then verify `calctokens --version` and `brew test aiyouwolegequ/calctokens/calctokens`.
    - If `brew audit --strict --online` reports a newly published GitHub Release asset as unreachable while `curl -I <asset-url>`, `brew upgrade calctokens`, and `brew test` all succeed, treat it as a transient online reachability false negative and record that fallback explicitly in the release notes.
 
-6. Upgrade on remote hosts
-   - Local macOS (this machine) — run directly:
-     ```bash
-     brew update && brew upgrade calctokens
-     ```
-   - MacMini (SSH: `joey@163.7.9.109:6000`) — run:
-     ```bash
-     export PATH=/opt/homebrew/bin:$PATH
-     brew update && brew upgrade calctokens
-     ```
-   - Jakarta (SSH: `darchrow@163.7.9.109:22223`) — run:
-     ```bash
-     export PATH=/home/linuxbrew/.linuxbrew/bin:$PATH
-     brew update && brew upgrade calctokens
-     ```
-
-7. Update project documentation
+6. Update project documentation
    - Update the Obsidian project doc at `/Users/felix/Library/Mobile Documents/iCloud~md~obsidian/Documents/Darchrow-Obsidian/Vibe_Coding/Project/CalcTokens.md` with the release notes. Follow the existing version-section format (date, added/fixed/changed subsections) and keep the document in sync with `CHANGELOG.md`.
    - For sync/reporting releases, include a short usage note covering `calctokens --sync <report>`, `calctokens sync`, default source snapshot detection, and `calctokens --no-sync <report>`.
    - If macOS privacy permissions block access to the iCloud/Obsidian path, do not skip the documentation step silently. Provide a paste-ready Markdown section in the final response so the user can update the note manually, and state the exact permission/path error encountered.
@@ -101,7 +85,7 @@ Recent history uses concise conventional-style messages such as `fix: add missin
 <claude-mem-context>
 # Memory Context
 
-# [CalcTokens] recent context, 2026-06-19 10:16pm GMT+8
+# [CalcTokens] recent context, 2026-09-09 12:10am GMT+8
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
